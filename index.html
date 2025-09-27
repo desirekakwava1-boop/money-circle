@@ -669,21 +669,18 @@ function renderContribs(){
     const date = el('#contribDate').value || todayISO();
     Store.contributions=[{id:uid(), memberId, amountCents, date, note:'Monthly contribution'}, ...Store.contributions]; saveStore(Store); flash('Contribution recorded'); renderContribs(); renderOverview(); renderProfile();
   };
-
   const q = el('#contribSearch').value?.toLowerCase()||'';
   const rows = Store.contributions.filter(c=>{ const m=Store.members.find(x=>x.id===c.memberId); return !q || m?.fullName?.toLowerCase().includes(q) }).sort((a,b)=> new Date(b.date)-new Date(a.date));
   el('#contribTotal').textContent = 'Total: '+ ZAR.format(rows.reduce((a,r)=>a+r.amountCents,0)/100);
   const tbody = el('#contribTable'); tbody.innerHTML='';
   rows.forEach(r=>{ const m=Store.members.find(x=>x.id===r.memberId); tbody.insertAdjacentHTML('beforeend', `<tr><td>${r.date}</td><td>${escapeHtml(m?.fullName||'—')}</td><td>${ZAR.format(r.amountCents/100)}</td><td>${r.note||'—'}</td></tr>`) });
 }
-
 /***** Profile / Login & Signup *****/
 function renderProfile(){
   // login recipients panel
   const open = Store.loans.filter(l=>l.status==='open');
   const wrap=el('#loginRecipients'); wrap.innerHTML='';
   if(open.length===0){ show(el('#loginRecipientsEmpty'), true) } else { show(el('#loginRecipientsEmpty'), false); open.forEach(l=>{ const m=Store.members.find(x=>x.id===l.recipientId); if(!m) return; wrap.insertAdjacentHTML('beforeend', memberCardHTML(m, `<div class='small'><div><span class='muted'>Amount:</span> ${ZAR.format(l.amountCents/100)}</div><div><span class='muted'>Received:</span> ${l.date}</div><div><span class='muted'>Due:</span> ${l.dueDate}</div></div>`)) }) }
-
   // session
   if(isMember()){
     show(el('#loginPanel'), false); show(el('#mePanel'), true);
@@ -705,7 +702,6 @@ function renderProfile(){
     el('#meReminder').textContent = myLoans.some(l=> l.status==='open' && new Date(l.dueDate)<new Date()) ? 'Reminder: Your payout is overdue. Please settle as soon as possible.' : '';
     return;
   }
-
   show(el('#loginPanel'), true); show(el('#mePanel'), false);
   el('#loginBtn').onclick=()=>{
     const role = el('#loginRole').value; const pw = el('#loginPw').value.trim(); if(!pw) return;
@@ -715,7 +711,6 @@ function renderProfile(){
     }
   };
 }
-
 function openSignup(){
   const card=el('#modalCard');
   card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Create Your Profile</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
@@ -738,7 +733,6 @@ function openSignup(){
     Store.members=[mem, ...Store.members]; saveStore(Store); show(el('#modal'), false); flash('Profile created — keep your password safe!'); switchTab('profile'); setSession('member', mem.id);
   };
 }
-
 /***** Backup & Settings *****/
 function renderSettings(){
   el('#defAmount').value = (Store.meta.defaultContributionCents/100).toFixed(2);
@@ -748,90 +742,87 @@ function renderSettings(){
   el('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(Store,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`money-circle-backup-${todayISO()}.json`; a.click() };
   el('#importInput').onchange=async e=>{ const f=e.target.files?.[0]; if(!f) return; try{ const obj=JSON.parse(await f.text()); if(!obj.members||!obj.loans||!obj.contributions) throw new Error('Invalid file'); Store=obj; saveStore(Store); flash('Backup restored'); renderAll() } catch(err){ alert('Import failed: '+err.message) } };
 }
-
 /***** Initial boot *****/
 function renderAll(){ renderNav(); autoPlayTick(); renderOverview(); if(currentTab!=='overview') switchTab(currentTab) }
 renderAll();
-
 </script>
+<script type="module" id="fb-init">
+  // CDN modules (v10)
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-<script type="module">
-  // Import the functions you need from the SDKs you need
-import { initializeApp } from "firebase/app";
-import { getAnalytics } from "firebase/analytics";
-// TODO: Add SDKs for Firebase products that you want to use
-// https://firebase.google.com/docs/web/setup#available-libraries
+  // Your config
+  const firebaseConfig = {
+    apiKey: "AIzaSyCGkUdeWjVsd7Sw7PsNYpY3hrLKs0j3QOM",
+    authDomain: "money-circle-6a59e.firebaseapp.com",
+    projectId: "money-circle-6a59e",
+    storageBucket: "money-circle-6a59e.firebasestorage.app",
+    messagingSenderId: "566514508721",
+    appId: "1:566514508721:web:98b16bbfd5d7289af95390",
+    measurementId: "G-VQ3JGVQF97"
+  };
+  // Init
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+  // Expose to your page
+  window.__fb = { app, auth, db, signInWithEmailAndPassword };
+  window.cloudCanWrite = false;    // your app checks this before saving
 
-// Your web app's Firebase configuration
-// For Firebase JS SDK v7.20.0 and later, measurementId is optional
-const firebaseConfig = {
-  apiKey: "AIzaSyCGkUdeWjVsd7Sw7PsNYpY3hrLKs0j3QOM",
-  authDomain: "money-circle-6a59e.firebaseapp.com",
-  projectId: "money-circle-6a59e",
-  storageBucket: "money-circle-6a59e.firebasestorage.app",
-  messagingSenderId: "566514508721",
-  appId: "1:566514508721:web:98b16bbfd5d7289af95390",
-  measurementId: "G-VQ3JGVQF97"
-};
-
-// Initialize Firebase
-const app = initializeApp(firebaseConfig);
-const analytics = getAnalytics(app);
+  console.log("✅ Firebase initialized");
+  // Tell other scripts Firebase is ready
+  window.dispatchEvent(new Event("fb-ready"));
 </script>
+<script type="module" id="cloud-sync">
+  import { doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-<script type="module">
-  const { auth, db } = window.__fb;
-  // Pick a short group id (letters/numbers only). Everyone will use the same id.
-  const GROUP_ID = "money-circle-001";
+  function setupCloud() {
+    const db = window.__fb?.db;
+    if (!db) {
+      console.warn("Firestore not available.");
+      return;
+    }
+    const GROUP_ID = "money-circle-001";         // same on all devices
+    const docRef = doc(db, "groups", GROUP_ID);
 
-  // Single-document approach (simple for small groups):
-  // We'll store the whole app state under /groups/<GROUP_ID>
-  import { doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-firestore.js";
-  const docRef = doc(db, "groups", GROUP_ID);
-
-  // Allow writes only when the manager signs into Firebase (separate from the PIN)
-  window.cloudCanWrite = false;
-
-  // Read once, then live-update
-  async function cloudLoadOnce() {
-    try {
-      const snap = await getDoc(docRef);
-      if (snap.exists() && snap.data()?.store) {
-        // Replace local store with cloud store
-        window.Store = snap.data().store;
-        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-        if (window.renderAll) window.renderAll();
-      }
-    } catch (e) { console.warn("Cloud load failed", e); }
+    async function cloudLoadOnce() {
+      try {
+        const snap = await getDoc(docRef);
+        if (snap.exists() && snap.data()?.store) {
+          window.Store = snap.data().store;
+          localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+          if (window.renderAll) window.renderAll();
+        }
+        console.log("☁️ Cloud loaded");
+      } catch (e) { console.warn("Cloud load failed", e); }
+    }
+    function cloudSubscribe() {
+      onSnapshot(docRef, (snap) => {
+        const data = snap.data();
+        if (data?.store) {
+          window.Store = data.store;
+          localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+          if (window.renderAll) window.renderAll();
+          console.log("🔄 Cloud update received");
+        }
+      });
+    }
+    async function cloudSave(store) {
+      if (!window.cloudCanWrite) return; // members can read-only
+      try {
+        await setDoc(docRef, { store }, { merge: true });
+        console.log("✅ Cloud saved");
+      } catch (e) { console.warn("Cloud save failed", e); }
+    }
+    // expose for your saveStore()
+    window.cloud = { loadOnce: cloudLoadOnce, subscribe: cloudSubscribe, save: cloudSave };
+    window.cloud.loadOnce();
+    window.cloud.subscribe();
   }
-
-  function cloudSubscribe() {
-    onSnapshot(docRef, (snap) => {
-      const data = snap.data();
-      if (data?.store) {
-        // Update view when anyone changes data
-        window.Store = data.store;
-        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-        if (window.renderAll) window.renderAll();
-      }
-    });
-  }
-
-  async function cloudSave(store) {
-    if (!window.cloudCanWrite) return; // ignore for members
-    try {
-      await setDoc(docRef, { store }, { merge: true });
-    } catch (e) { console.warn("Cloud save failed", e); }
-  }
-
-  // Expose
-  window.cloud = { loadOnce: cloudLoadOnce, subscribe: cloudSubscribe, save: cloudSave };
-
-  // Kick off
-  window.cloud.loadOnce();
-  window.cloud.subscribe();
+  // If Firebase already ready, run now; otherwise wait for event
+  if (window.__fb?.db) setupCloud();
+  else window.addEventListener("fb-ready", setupCloud, { once: true });
 </script>
-
-
 </body>
 </html>
