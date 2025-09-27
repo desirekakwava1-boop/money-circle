@@ -1,0 +1,837 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Money Circle — Windows Web App (Vanilla JS, No React)</title>
+  <meta name="color-scheme" content="light dark" />
+  <style>
+    :root{
+      --bg:#0b0f14; --panel:#111823; --panel2:#0f1520; --muted:#9fb0c3; --text:#e6edf3; --brand:#3b82f6;
+      --ok:#10b981; --warn:#f59e0b; --danger:#ef4444; --ring:0 0 0 2px rgba(59,130,246,.45); --radius:14px;
+    }
+    html,body{height:100%}
+    body{margin:0;font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+    header{position:sticky;top:0;z-index:50;background:rgba(11,15,20,.8);backdrop-filter:blur(8px);border-bottom:1px solid #1e293b}
+    .container{max-width:1200px;margin:0 auto;padding:12px 16px}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand .logo{width:36px;height:36px;border-radius:12px;background:#2563eb;display:grid;place-items:center;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+    nav{display:flex;flex-wrap:wrap;gap:8px;margin-left:16px}
+    nav button{padding:8px 12px;border-radius:12px;border:1px solid #243142;background:#0b0f14;color:var(--text);cursor:pointer}
+    nav button.active{background:#0f172a;border-color:#334155}
+    .row{display:flex;gap:12px;align-items:center}
+    .grow{flex:1}
+    .btn{padding:10px 14px;border-radius:12px;border:1px solid #334155;background:#111823;color:var(--text);cursor:pointer}
+    .btn.primary{background:#2563eb;border-color:#2563eb}
+    .btn.danger{border-color:#7f1d1d;background:#450a0a;color:#fecaca}
+    .btn.ok{background:#065f46;border-color:#065f46}
+    input,select,textarea{background:#0f1520;border:1px solid #243142;color:var(--text);border-radius:12px;padding:10px;outline:none}
+    input:focus,select:focus,textarea:focus{box-shadow:var(--ring)}
+    .card{background:#0f1520;border:1px solid #1f2937;border-radius:16px;padding:14px}
+    .grid{display:grid;gap:12px}
+    .grid-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .grid-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+    .muted{color:#9fb0c3}
+    .small{font-size:12px}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #334155;background:#0b0f14;font-size:12px}
+    .hstack{display:flex;gap:8px;align-items:center}
+    .avatar{width:56px;height:56px;border-radius:14px;object-fit:cover;border:1px solid #233042;background:#0b0f14}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px 10px;text-align:left;border-bottom:1px solid #18202d}
+    .notice{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#111827;border:1px solid #253048;border-radius:12px;padding:8px 12px;z-index:60}
+    .hidden{display:none !important}
+    .right{margin-left:auto}
+    .footer{color:#94a3b8;font-size:12px;margin-top:6px}
+    .img-s{width:44px;height:44px;border-radius:12px;object-fit:cover;border:1px solid #233042;background:#0b0f14}
+    .overflow{max-height:280px;overflow:auto;padding-right:6px}
+    .kpi{font-weight:600;font-size:18px;margin-top:4px}
+    .tag{font-size:11px;padding:2px 6px;border-radius:8px;border:1px solid #334155;background:#0b0f14}
+  </style>
+</head>
+<body>
+<header>
+  <div class="container row">
+    <div class="brand">
+      <div class="logo">💸</div>
+      <div>
+        <div style="font-weight:600">Money Circle</div>
+        <div class="small muted">Stokvel · R10,000 monthly baseline</div>
+      </div>
+    </div>
+    <nav id="nav" class="row grow"></nav>
+    <div class="row">
+      <input id="managerPinInput" type="password" placeholder="Manager PIN" style="width:140px">
+      <button class="btn" id="managerToggle">Manager OFF</button>
+      <button class="btn" id="setManagerPin" title="Change PIN">Set</button>
+    </div>
+  </div>
+</header>
+
+<div id="notice" class="notice hidden"></div>
+
+<main class="container" style="padding:16px 16px 26px">
+  <!-- OVERVIEW -->
+  <section id="view-overview" class="grid">
+    <div id="managerControls" class="card hidden"></div>
+    <div class="grid grid-4">
+      <div class="card"><div class="muted small">Active Members</div><div id="stat-members" class="kpi">0</div></div>
+      <div class="card"><div class="muted small">Total Contributions</div><div id="stat-contrib" class="kpi">R0.00</div></div>
+      <div class="card"><div class="muted small">Total Loaned Out</div><div id="stat-loaned" class="kpi">R0.00</div></div>
+      <div class="card"><div class="muted small">Outstanding</div><div id="stat-outstanding" class="kpi">R0.00</div></div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <h3 style="margin:0;font-weight:600">Members who received money (Open)</h3>
+        <div class="small muted">Round <span id="roundCycle">1</span> — served <span id="roundServed">0</span>/<span id="roundTotal">0</span></div>
+      </div>
+      <div id="openRecipients" class="grid grid-3"></div>
+      <div id="noOpenRecipients" class="muted small">No open payouts yet.</div>
+    </div>
+  </section>
+
+  <!-- MEMBERS -->
+  <section id="view-members" class="grid hidden">
+    <div class="row">
+      <input id="memberSearch" placeholder="Search members..." style="width:280px">
+      <div class="grow"></div>
+      <button class="btn" id="addMemberBtn" title="Manager required">+ Add Member</button>
+    </div>
+    <div id="memberList" class="grid grid-3"></div>
+    <div id="memberTip" class="muted small">Tip: First time setup — add members here. Share each member's unique password for login.</div>
+  </section>
+
+  <!-- PAYOUTS / LOANS -->
+  <section id="view-payouts" class="grid hidden">
+    <div class="row">
+      <input id="payoutSearch" placeholder="Search payouts by member name..." style="width:300px">
+      <div class="grow"></div>
+      <button class="btn" id="randomSelectBtn" title="Manager required">🎲 Random Select & Lend</button>
+    </div>
+    <div class="card">
+      <div class="row small muted">
+        <div class="tag">Fair-rotation: selected members are removed from random selection until everyone has had a turn. Then a new round starts automatically.</div>
+      </div>
+    </div>
+    <div id="payoutList" class="grid grid-3"></div>
+    <div id="payoutEmpty" class="muted small">No payouts recorded yet.</div>
+  </section>
+
+  <!-- CONTRIBUTIONS -->
+  <section id="view-contribs" class="grid hidden">
+    <div class="card">
+      <div class="grid grid-4" style="align-items:end">
+        <label> <div class="small muted">Member</div>
+          <select id="contribMember"></select>
+        </label>
+        <label> <div class="small muted">Amount (ZAR)</div>
+          <input id="contribAmount" type="number" min="0" step="0.01">
+        </label>
+        <label> <div class="small muted">Date</div>
+          <input id="contribDate" type="date">
+        </label>
+        <button class="btn primary" id="recordContrib">Record</button>
+      </div>
+    </div>
+    <div class="row">
+      <input id="contribSearch" placeholder="Search contributions by member name..." style="width:300px">
+      <div class="muted small" id="contribTotal" style="margin-left:8px"></div>
+    </div>
+    <div class="card">
+      <div class="overflow">
+        <table>
+          <thead>
+            <tr class="muted small"><th>Date</th><th>Member</th><th>Amount</th><th>Note</th></tr>
+          </thead>
+          <tbody id="contribTable"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- PROFILE / LOGIN -->
+  <section id="view-profile" class="grid hidden">
+    <div class="grid grid-2">
+      <div class="card" id="loginPanel">
+        <h3 style="margin:0 0 8px;font-weight:600">Log In</h3>
+        <div class="grid">
+          <label><div class="small muted">I am</div>
+            <select id="loginRole">
+              <option value="member">Member</option>
+              <option value="manager">Manager</option>
+            </select>
+          </label>
+          <label id="loginPwLabel"><div class="small muted">Password</div>
+            <input id="loginPw" type="password" placeholder="Enter your password or PIN">
+          </label>
+          <button class="btn primary" id="loginBtn">Log In</button>
+          <div class="small muted">Accounts are created by the manager. Ask the manager for your password.</div>
+        </div>
+        <div class="footer">This page also shows who has received money (open payouts) below.</div>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 8px;font-weight:600">Members who received money (Open)</h3>
+        <div id="loginRecipients" class="grid grid-2"></div>
+        <div id="loginRecipientsEmpty" class="muted small">No open payouts yet.</div>
+      </div>
+    </div>
+
+    <div id="mePanel" class="card hidden">
+      <div class="row">
+        <img id="meAvatar" class="avatar">
+        <div>
+          <div id="meName" style="font-weight:600"></div>
+          <div class="small muted">Age <span id="meAge"></span> · Joined <span id="meJoined"></span></div>
+          <div class="small muted">Your password: <code id="mePw" class="pill"></code> <button class="btn" id="copyPw" style="padding:4px 8px">Copy</button></div>
+        </div>
+        <div class="grow"></div>
+        <button class="btn" id="switchAccount">Switch Account</button>
+      </div>
+      <div class="grid grid-2" style="margin-top:12px">
+        <div class="card">
+          <h4 style="margin:0 0 6px">Contributions</h4>
+          <div class="small muted">Total paid: <span id="mePaid"></span></div>
+          <div class="overflow" id="meContribs"></div>
+        </div>
+        <div class="card">
+          <h4 style="margin:0 0 6px">Money Received</h4>
+          <div class="small muted">Total received: <span id="meReceived"></span></div>
+          <div class="overflow" id="meLoans"></div>
+          <div id="meReminder" class="small" style="color:#fcd34d;margin-top:6px"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- BACKUP / SETTINGS -->
+  <section id="view-backup" class="grid hidden">
+    <div class="grid grid-2">
+      <div class="card">
+        <h3 style="margin:0 0 8px;font-weight:600">Export</h3>
+        <div class="small">Download all data as JSON. Keep it safe.</div>
+        <button class="btn primary" id="exportBtn" style="margin-top:10px">Download Backup</button>
+      </div>
+      <div class="card">
+        <h3 style="margin:0 0 8px;font-weight:600">Import</h3>
+        <div class="small">Restore from a previous backup file.</div>
+        <input id="importInput" type="file" accept="application/json" style="margin-top:10px">
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin:0 0 8px;font-weight:600">Settings (Manager)</h3>
+      <div class="grid grid-3" style="align-items:end">
+        <label><div class="small muted">Default monthly contribution (ZAR)</div>
+          <input id="defAmount" type="number" min="0" step="0.01">
+        </label>
+        <label><div class="small muted">Manager PIN</div>
+          <input id="managerEdit" type="password">
+        </label>
+        <button class="btn" id="saveSettings">Save</button>
+      </div>
+      <div class="footer">Current manager PIN: <code id="managerDisplay" class="pill"></code></div>
+    </div>
+  </section>
+</main>
+
+<!-- ===== Modals ===== -->
+<div id="modal" class="hidden" style="position:fixed;inset:0;background:rgba(0,0,0,.7);display:grid;place-items:center;z-index:80;padding:12px">
+  <div class="card" style="width:min(720px,96vw)" id="modalCard"></div>
+</div>
+
+<script>
+/***** Utilities *****/
+const ZAR = new Intl.NumberFormat('en-ZA',{style:'currency',currency:'ZAR',minimumFractionDigits:2});
+const uid = () => Math.random().toString(36).slice(2,10)+Date.now().toString(36).slice(-4);
+const todayISO = (d=new Date())=>new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10);
+const inDays = (a,b)=> Math.ceil((new Date(b)-new Date(a))/(1000*60*60*24));
+const clamp = (n,a,b)=> Math.min(Math.max(n,a),b);
+const el = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
+const show = (node, yes)=> node.classList[yes?'remove':'add']('hidden');
+const copy = t => navigator.clipboard?.writeText(t).catch(()=>{});
+function readAsDataURL(file){ return new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(file)}); }
+function avatarFromName(name='?'){
+  const COLORS=['#60a5fa','#34d399','#f59e0b','#f472b6','#a78bfa','#22d3ee'];
+  const initials=(name.trim().split(/\s+/).slice(0,2).map(s=>s[0]?.toUpperCase()).join(''))||'?';
+  const color=COLORS[initials.charCodeAt(0)%COLORS.length];
+  const svg=encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' width='128' height='128'><rect width='100%' height='100%' rx='24' fill='${color}'/><text x='50%' y='58%' text-anchor='middle' font-family='Segoe UI,Arial' font-size='54' fill='white'>${initials}</text></svg>`);
+  return `data:image/svg+xml,${svg}`;
+}
+function escapeHtml(s=''){ return s.replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])) }
+
+/***** Persistence *****/
+const STORAGE_KEY='money-circle-vanilla-v2';
+function loadStore(){ try{ return JSON.parse(localStorage.getItem(STORAGE_KEY)||'null') } catch{ return null } }
+function saveStore(s){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  if (window.cloud && window.cloudCanWrite) { window.cloud.save(s); }
+}
+
+
+/***** Default Model *****/
+const DEFAULT_CONTRIB_CENTS = 1_000_000; // R10,000
+const DEFAULT_MANAGER_PIN = '123456';
+function newStore(){
+  return {
+    meta:{ createdAt:new Date().toISOString(), currency:'ZAR', defaultContributionCents:DEFAULT_CONTRIB_CENTS, managerPin: DEFAULT_MANAGER_PIN,
+    autoPlay:{ enabled:false, startedAt:null, day:1, recipientsPerMonth:1, amountCents: DEFAULT_CONTRIB_CENTS, lastRunDate:null } },
+    members:[], // {id, fullName, age, password, photoDataUrl, joinedAt, active}
+    contributions:[], // {id, memberId, amountCents, date, note}
+    loans:[], // {id, recipientId, amountCents, date, dueDate, fromMembers, status:'open'|'paid', paidBackAt}
+    rounds:{ cycle:1, servedIds:[] }, // fair rotation
+    session:{ role:null, memberId:null },
+  };
+}
+
+let Store = loadStore() || newStore();
+saveStore(Store);
+
+/***** Session helpers *****/
+function setSession(role, memberId=null){ Store.session={role, memberId}; saveStore(Store); renderAll() }
+function isManager(){ return Store.session.role==='manager' }
+function isMember(){ return Store.session.role==='member' }
+
+/***** Notice *****/
+let noticeTimer=null; function flash(msg){ const n=el('#notice'); n.textContent=msg; show(n,true); clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>show(n,false),2200) }
+
+/***** Nav + header *****/
+const TABS=[['overview','Overview'],['members','Members'],['payouts','Payouts'],['contribs','Contributions'],['profile','Login / Profile'],['backup','Backup']];
+function renderNav(){ const nav=el('#nav'); nav.innerHTML='';
+  const baseTabs = isManager()? TABS : [['overview','Overview'],['profile','Login / Profile']];
+  baseTabs.forEach(([key,label])=>{
+    const b=document.createElement('button'); b.textContent=label; b.dataset.tab=key;
+    b.onclick=()=>switchTab(key); if(currentTab===key) b.classList.add('active'); nav.appendChild(b);
+  });
+  const pIn=el('#managerPinInput'); const pT=el('#managerToggle'); const pS=el('#setManagerPin');
+  pT.textContent = isManager()? 'Manager ON' : 'Manager OFF';
+  pT.className = 'btn' + (isManager()? ' ok':'' );
+pT.onclick = async () => { 
+  if (isManager()) { 
+    setSession(null); 
+    return; 
+  }
+
+  if (pIn.value === Store.meta.managerPin) { 
+    setSession('manager'); 
+    flash('Manager logged in');
+
+    // Ask once for Firebase manager email/password to enable cloud writes
+    if (!window.cloudCanWrite && window.__fb?.auth) {
+      const email = prompt("Manager cloud email (for writes)");
+      const pass  = prompt("Manager cloud password");
+      if (email && pass) {
+        const { signInWithEmailAndPassword } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+        try {
+          await signInWithEmailAndPassword(window.__fb.auth, email, pass);
+          window.cloudCanWrite = true;
+          flash("Cloud: manager signed in");
+        } catch (e) {
+          alert("Cloud sign-in failed. Viewing only.");
+        }
+      }
+    }
+
+  } else {
+    flash('Incorrect PIN');
+  }
+};
+
+
+  pS.onclick=()=>{ if(!isManager()) return alert('Login as manager first');
+    const next=prompt('Set NEW manager PIN (4-6 digits)', Store.meta.managerPin);
+    if(!next) return; if(!/^\d{4,6}$/.test(next)) return alert('PIN must be 4-6 digits');
+    Store.meta.managerPin=next; saveStore(Store); flash('Manager PIN updated'); renderSettings();
+  };
+}
+
+
+/***** Tab switching *****/
+let currentTab='overview';
+function switchTab(tab){ currentTab=tab; renderNav(); ['overview','members','payouts','contribs','profile','backup'].forEach(t=>show(el('#view-'+t), t===tab)); if(tab==='overview') renderOverview(); if(tab==='members') renderMembers(); if(tab==='payouts') renderPayouts(); if(tab==='contribs') renderContribs(); if(tab==='profile') renderProfile(); if(tab==='backup') renderSettings(); }
+
+/***** Overview *****/
+function renderOverview(){
+  // Manager Controls (Start/Stop Auto-Play)
+  const mc = el('#managerControls');
+  if(isManager()){
+    show(mc, true);
+    Store.meta.autoPlay = Store.meta.autoPlay || { enabled:false, startedAt:null, day:1,
+      recipientsPerMonth:1, amountCents: Store.meta.defaultContributionCents, lastRunDate:null };
+    const ap = Store.meta.autoPlay;
+    const nextRun = computeNextRunDate();
+    if(ap.enabled){
+      mc.innerHTML = `<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Manager Controls</h3><span class='pill'>Auto-Play ON</span></div>
+      <div class='grid grid-4'>
+        <div><div class='small muted'>Recipients/month</div><div class='kpi'>${ap.recipientsPerMonth||1}</div></div>
+        <div><div class='small muted'>Amount/recipient</div><div class='kpi'>${ZAR.format((ap.amountCents||Store.meta.defaultContributionCents)/100)}</div></div>
+        <div><div class='small muted'>Day of month</div><div class='kpi'>${ap.day}</div></div>
+        <div><div class='small muted'>Next run</div><div class='kpi'>${nextRun||'—'}</div></div>
+      </div>
+      <div class='row' style='margin-top:8px'>
+        <button class='btn' id='runNow'>▶ Run this month now</button>
+        <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
+      </div>`;
+      el('#runNow').onclick=()=>{
+        const d=todayISO(); const amt=ap.amountCents||Store.meta.defaultContributionCents;
+        createPayoutBatch(d, ap.recipientsPerMonth||1, amt);
+        ap.lastRunDate=d; saveStore(Store); flash('Auto-Play: run created');
+        renderOverview(); renderPayouts(); renderProfile();
+      };
+      el('#stopAuto').onclick=()=>{ ap.enabled=false; saveStore(Store); flash('Auto-Play stopped'); renderOverview(); };
+    } else {
+      mc.innerHTML = `<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Manager Controls</h3><span class='pill'>Auto-Play OFF</span></div>
+      <div class='grid grid-4' style='align-items:end'>
+        <label><div class='small muted'>Recipients per month</div><input id='apK' type='number' min='1' value='${ap.recipientsPerMonth||1}'></label>
+        <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='apAmt' type='number' min='0' step='0.01' value='${((ap.amountCents??Store.meta.defaultContributionCents)/100).toFixed(2)}'></label>
+        <label><div class='small muted'>Day of month</div><input id='apDay' type='number' min='1' max='28' value='${ap.day||new Date().getDate()}'></label>
+        <button class='btn primary' id='startAuto'>▶ Start Play</button>
+      </div>
+      <div class='small muted'>Auto-Play rotates randomly without repeats; once everyone has received, a new round starts.</div>`;
+      el('#startAuto').onclick=()=>{
+        const k=Math.max(1, parseInt(el('#apK').value)||1);
+        const day=Math.min(28, Math.max(1, parseInt(el('#apDay').value)||new Date().getDate()));
+        const amtCents=Math.max(0, Math.round(parseFloat(el('#apAmt').value||'0')*100));
+        Store.meta.autoPlay={ enabled:true, startedAt: todayISO(), day, recipientsPerMonth:k,
+          amountCents: amtCents||Store.meta.defaultContributionCents, lastRunDate:null };
+        saveStore(Store); flash('Auto-Play started'); renderOverview();
+      };
+    }
+  } else { show(mc, false); }
+
+  // KPIs + open recipients (existing logic)
+  const activeMembers = Store.members.filter(m=>m.active!==false).length;
+  el('#stat-members').textContent=String(activeMembers);
+  const totalContrib = Store.contributions.reduce((a,c)=>a+(c.amountCents||0),0);
+  const totalLoaned = Store.loans.reduce((a,l)=>a+(l.amountCents||0),0);
+  const outstanding = Store.loans.filter(l=>l.status==='open').reduce((a,l)=>a+l.amountCents,0);
+  el('#stat-contrib').textContent=ZAR.format(totalContrib/100);
+  el('#stat-loaned').textContent=ZAR.format(totalLoaned/100);
+  el('#stat-outstanding').textContent=ZAR.format(outstanding/100);
+
+  el('#roundCycle').textContent = String(Store.rounds.cycle);
+  el('#roundServed').textContent = String(Store.rounds.servedIds.length);
+  el('#roundTotal').textContent = String(activeMembers);
+
+  const open = Store.loans.filter(l=>l.status==='open');
+  const wrap=el('#openRecipients'); wrap.innerHTML='';
+  if(open.length===0){ show(el('#noOpenRecipients'), true); } else {
+    show(el('#noOpenRecipients'), false);
+    open.forEach(l=>{
+      const m = Store.members.find(x=>x.id===l.recipientId); if(!m) return;
+      wrap.insertAdjacentHTML('beforeend', memberCardHTML(m, `<div class='small'>
+        <div><span class='muted'>Amount:</span> ${ZAR.format(l.amountCents/100)}</div>
+        <div><span class='muted'>Received:</span> ${l.date}</div>
+        <div><span class='muted'>Due:</span> ${l.dueDate}${ new Date(l.dueDate)<new Date()? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue by ${Math.abs(inDays(todayISO(), l.dueDate))}d</span>`:''}</div>
+      </div>`));
+    });
+  }
+}
+
+
+function memberCardHTML(m, extra=''){
+  const img = m.photoDataUrl || avatarFromName(m.fullName);
+  return `<div class='card hstack'>
+    <img src='${img}' class='avatar'>
+    <div class='grow'>
+      <div style='font-weight:600'>${escapeHtml(m.fullName)}</div>
+      <div class='small muted'>Age ${m.age} · Joined ${m.joinedAt?.slice(0,10)||'—'}</div>
+      ${extra}
+    </div>
+  </div>`
+}
+
+/***** Members *****/
+function renderMembers(){
+  el('#addMemberBtn').onclick = ()=>{ if(!isManager()) return alert('Manager login required'); openAddMember() };
+  const q = el('#memberSearch').value?.toLowerCase()||'';
+  const list = el('#memberList'); list.innerHTML='';
+  const filtered = Store.members.filter(m=> (m.fullName+' '+m.age).toLowerCase().includes(q));
+  show(el('#memberTip'), Store.members.length===0);
+  filtered.forEach(m=>{
+    const img = m.photoDataUrl || avatarFromName(m.fullName);
+    const div=document.createElement('div'); div.className='card hstack';
+    div.innerHTML=`<img src='${img}' class='avatar'>
+      <div class='grow'>
+        <div style='font-weight:600'>${escapeHtml(m.fullName)}</div>
+        <div class='small muted'>Age ${m.age} · Member since ${m.joinedAt?.slice(0,10)||'—'}</div>
+        <div class='small'>Password: <code class='pill'>${m.password}</code> <button class='btn' style='padding:4px 8px'>Copy</button></div>
+      </div>
+      <div class='hstack'>
+        <button class='btn' data-viewjson>View JSON</button>
+        <button class='btn danger' data-remove>Remove</button>
+      </div>`;
+    div.querySelector('button').onclick=()=>copy(m.password);
+    div.querySelector('[data-viewjson]').onclick=()=>alert(JSON.stringify(m,null,2));
+    div.querySelector('[data-remove]').onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Remove '+m.fullName+'?')){
+      Store.members=Store.members.filter(x=>x.id!==m.id);
+      // also remove from rounds.servedIds if present
+      Store.rounds.servedIds = Store.rounds.servedIds.filter(id=>id!==m.id);
+      saveStore(Store); flash('Member removed'); renderMembers(); renderContribs(); renderPayouts(); renderOverview();
+    } };
+    list.appendChild(div);
+  })
+}
+
+function openAddMember(){
+  const card=el('#modalCard');
+  card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Add Member</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
+  <div class='grid grid-2'>
+    <label><div class='small muted'>Full name</div><input id='mName' placeholder='e.g., Nomsa Dlamini'></label>
+    <label><div class='small muted'>Age</div><input id='mAge' type='number' min='10' max='120' placeholder='29'></label>
+    <label class='row'><img id='mPrev' class='img-s' src='${avatarFromName('N')}'><div><div class='small muted'>Profile picture</div><input id='mPhoto' type='file' accept='image/*'></div></label>
+    <label><div class='small muted'>Unique login password</div><div class='row'><input id='mPw'><button class='btn' id='regen' style='padding:8px 10px'>Regenerate</button><button class='btn' id='copyPw' style='padding:8px 10px'>Copy</button></div></label>
+  </div>
+  <div class='row' style='justify-content:flex-end;margin-top:10px'>
+    <button class='btn' id='create'>Create</button>
+  </div>`;
+  show(el('#modal'), true);
+  const pwInput = el('#mPw'); pwInput.value = genPassword();
+  el('#regen').onclick=()=>{ pwInput.value = genPassword() };
+  el('#copyPw').onclick=()=>copy(pwInput.value);
+  el('#mPhoto').onchange=async e=>{ const f=e.target.files?.[0]; if(f){ el('#mPrev').src = await readAsDataURL(f) } };
+  el('#xClose').onclick=()=>show(el('#modal'), false);
+  el('#create').onclick=()=>{
+    const fullName=el('#mName').value.trim(); const age = clamp(parseInt(el('#mAge').value)||0,10,120);
+    const password=pwInput.value.trim(); const img=el('#mPrev').src.startsWith('data:')? el('#mPrev').src : null;
+    if(!fullName || !age) return alert('Full name and age are required');
+    if(Store.members.some(m=>m.password===password)) return alert('Password already in use. Regenerate.');
+    const mem={ id:uid(), fullName, age, password, photoDataUrl: img, joinedAt:new Date().toISOString(), active:true };
+    Store.members = [mem, ...Store.members];
+    saveStore(Store); show(el('#modal'), false); flash('Member added'); renderMembers(); renderContribs(); renderPayouts(); renderOverview();
+  };
+}
+
+function genPassword(){ const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return Array.from({length:8},()=>chars[Math.floor(Math.random()*chars.length)]).join('') }
+
+/***** Fair Rotation (Random Selection) *****/
+function getEligibleIds(){
+  const activeIds = Store.members.filter(m=>m.active!==false).map(m=>m.id);
+  // Drop any servedIds that no longer exist
+  Store.rounds.servedIds = Store.rounds.servedIds.filter(id=>activeIds.includes(id));
+  const eligible = activeIds.filter(id=> !Store.rounds.servedIds.includes(id));
+  // If none eligible but there are members, start a new cycle
+  if(eligible.length===0 && activeIds.length>0){ Store.rounds.cycle += 1; Store.rounds.servedIds = []; saveStore(Store); return [...activeIds] }
+  return eligible;
+}
+function pickRandom(ids, k){
+  const arr=[...ids]; const n=Math.min(k, arr.length);
+  for(let i=arr.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [arr[i],arr[j]]=[arr[j],arr[i]] }
+  return arr.slice(0,n);
+}
+
+/*===== Auto-Play (Monthly Rotation) =====*/
+function daysInMonth(y,m){ return new Date(y, m+1, 0).getDate() }
+function monthDate(y,m,d){ return new Date(y, m, Math.min(d, daysInMonth(y,m))) }
+function addMonthsDate(d,n,day){
+  const y=d.getFullYear(), m=d.getMonth();
+  const base=new Date(y,m,1);
+  const nm=new Date(base.setMonth(base.getMonth()+n));
+  return monthDate(nm.getFullYear(), nm.getMonth(), day);
+}
+function computeNextRunDate(){
+  const ap=Store.meta.autoPlay; if(!ap?.enabled||!ap.startedAt) return null;
+  const start=new Date(ap.startedAt); const day=ap.day||start.getDate();
+  const next = ap.lastRunDate? addMonthsDate(new Date(ap.lastRunDate),1,day)
+                             : monthDate(start.getFullYear(), start.getMonth(), day);
+  return todayISO(next);
+}
+function createPayoutBatch(dateStr,k,amountCents){
+  let eligible=getEligibleIds();
+  if(eligible.length===0){
+    const activeIds=Store.members.filter(m=>m.active!==false).map(m=>m.id);
+    if(activeIds.length===0) return;
+    Store.rounds.cycle+=1; Store.rounds.servedIds=[]; eligible=getEligibleIds();
+  }
+  const chosen=pickRandom(eligible, k); if(chosen.length===0) return;
+  const runDate=new Date(dateStr);
+  const due=addMonthsDate(runDate,1, runDate.getDate()); const dueStr=todayISO(due);
+  const fromIds=Store.members.map(m=>m.id);
+  const loans=chosen.map(rid=>({id:uid(), recipientId:rid, amountCents, date:dateStr, dueDate:dueStr,
+                                fromMembers: fromIds.filter(id=>id!==rid), status:'open'}));
+  Store.loans=[...loans, ...Store.loans];
+  Store.rounds.servedIds=Array.from(new Set([...Store.rounds.servedIds, ...chosen]));
+}
+function autoPlayTick(){
+  const ap=Store.meta.autoPlay; if(!ap?.enabled || !Store.members.length) return;
+  if(!ap.startedAt) ap.startedAt = todayISO();
+  if(!ap.day){ const d=new Date(ap.startedAt); ap.day=d.getDate(); }
+  const amt=ap.amountCents||Store.meta.defaultContributionCents;
+  const start=new Date(ap.startedAt);
+  let cursor = ap.lastRunDate? addMonthsDate(new Date(ap.lastRunDate),1, ap.day)
+                             : monthDate(start.getFullYear(), start.getMonth(), ap.day);
+  const today=new Date(); let ran=false;
+  while(cursor<=today){
+    createPayoutBatch(todayISO(cursor), ap.recipientsPerMonth||1, amt);
+    ap.lastRunDate = todayISO(cursor);
+    cursor = addMonthsDate(cursor,1, ap.day);
+    ran=true;
+  }
+  if(ran) saveStore(Store);
+}
+
+
+/***** Payouts *****/
+function renderPayouts(){
+  el('#randomSelectBtn').onclick=()=>{ if(!isManager()) return alert('Manager login required'); openRandomSelect() };
+  const q = el('#payoutSearch').value?.toLowerCase()||'';
+  const list = el('#payoutList'); list.innerHTML='';
+  const loans = Store.loans.filter(l=>{ const m = Store.members.find(x=>x.id===l.recipientId); return !q || m?.fullName?.toLowerCase().includes(q) }).sort((a,b)=> new Date(b.date)-new Date(a.date));
+  show(el('#payoutEmpty'), loans.length===0);
+  loans.forEach(l=>{
+    const m = Store.members.find(x=>x.id===l.recipientId); if(!m) return;
+    const div=document.createElement('div'); div.className='card';
+    div.innerHTML = memberCardHTML(m, `<div class='small'>
+      <div><span class='muted'>Amount:</span> ${ZAR.format(l.amountCents/100)}</div>
+      <div><span class='muted'>Received:</span> ${l.date}</div>
+      <div><span class='muted'>Due:</span> ${l.dueDate} ${ (l.status==='open' && new Date(l.dueDate)<new Date())? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue</span>`:''}</div>
+      <div class='muted small'>From members: ${(l.fromMembers||[]).map(id=> Store.members.find(x=>x.id===id)?.fullName).filter(Boolean).join(', ') || '—'}</div>
+    </div>`)+
+    `<div class='row' style='margin-top:8px'>
+      ${ l.status==='open' ? `<button class='btn ok' data-paid>Mark Paid</button>` : `<span class='pill'>Paid on ${l.paidBackAt||''}</span>` }
+      <button class='btn' data-json>View JSON</button>
+      <button class='btn danger right' data-del>Delete</button>
+    </div>`;
+    div.querySelector('[data-json]').onclick=()=>alert(JSON.stringify(l,null,2));
+    div.querySelector('[data-del]').onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Delete this payout?')){ Store.loans=Store.loans.filter(x=>x.id!==l.id); saveStore(Store); flash('Payout deleted'); renderPayouts(); renderOverview() } };
+    const paidBtn = div.querySelector('[data-paid]'); if(paidBtn) paidBtn.onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Confirm: mark as PAID BACK?')){ Store.loans = Store.loans.map(x=> x.id===l.id? {...x, status:'paid', paidBackAt: todayISO() }: x ); saveStore(Store); flash('Marked as paid'); renderPayouts(); renderOverview() } };
+    list.appendChild(div);
+  })
+}
+
+function openRandomSelect(){
+  const members = Store.members.filter(m=>m.active!==false);
+  if(members.length===0) return alert('Add members first');
+  const eligible = getEligibleIds();
+  const d = new Date(); d.setMonth(d.getMonth()+1);
+  const defDue = todayISO(d);
+  const defAmt = (Store.meta.defaultContributionCents/100).toFixed(2);
+  const card=el('#modalCard');
+  card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>🎲 Random Select & Lend</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
+  <div class='grid grid-2'>
+    <div class='grid'>
+      <label><div class='small muted'>Recipients to pick (this round)</div><input id='pickK' type='number' min='1' max='${Math.max(eligible.length,1)}' value='1'></label>
+      <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='pAmt' type='number' min='0' step='0.01' value='${defAmt}'></label>
+      <label><div class='small muted'>Received on</div><input id='pDate' type='date' value='${todayISO()}'></label>
+      <label><div class='small muted'>Due date</div><input id='pDue' type='date' value='${defDue}'></label>
+      <div class='small muted'>Eligible now: ${eligible.length}/${members.length}. Round ${Store.rounds.cycle}.</div>
+      <div class='row'><button class='btn' id='previewBtn'>Preview Selection</button><button class='btn primary right' id='create'>Create Payout(s)</button></div>
+    </div>
+    <div>
+      <div class='small muted' style='margin-bottom:6px'>Selection preview</div>
+      <div class='overflow' id='previewWrap'></div>
+    </div>
+  </div>`;
+  show(el('#modal'), true);
+  el('#xClose').onclick=()=>show(el('#modal'), false);
+
+  function renderPreview(){
+    const k = Math.max(1, Math.min(parseInt(el('#pickK').value)||1, getEligibleIds().length||1));
+    const chosen = pickRandom(getEligibleIds(), k);
+    const wrap=el('#previewWrap'); wrap.innerHTML='';
+    if(chosen.length===0){ wrap.innerHTML = `<div class='muted small'>No eligible members. A new round will start after you confirm.</div>`; return }
+    chosen.forEach(id=>{ const m=Store.members.find(x=>x.id===id); if(!m) return; wrap.insertAdjacentHTML('beforeend', `<div class='card hstack'><img class='img-s' src='${m.photoDataUrl||avatarFromName(m.fullName)}'><div class='grow'><div style='font-weight:600'>${escapeHtml(m.fullName)}</div><div class='small muted'>Age ${m.age}</div></div></div>`) })
+    return chosen;
+  }
+  el('#previewBtn').onclick=renderPreview;
+  const initial=renderPreview();
+
+  el('#create').onclick=()=>{
+    const k = Math.max(1, Math.min(parseInt(el('#pickK').value)||1, getEligibleIds().length||1));
+    const chosenIds = pickRandom(getEligibleIds(), k);
+    const amountCents = Math.max(0, Math.round(parseFloat(el('#pAmt').value||'0')*100));
+    const date = el('#pDate').value || todayISO();
+    const dueDate = el('#pDue').value || todayISO();
+    if(chosenIds.length===0){ // force new round then pick again
+      const activeIds = Store.members.filter(m=>m.active!==false).map(m=>m.id);
+      if(activeIds.length===0) return alert('No active members');
+      Store.rounds.cycle += 1; Store.rounds.servedIds = [];
+    }
+    const fromIds = Store.members.map(m=>m.id);
+    const payloads = chosenIds.map(rid=> ({ id:uid(), recipientId: rid, amountCents, date, dueDate, fromMembers: fromIds.filter(id=>id!==rid), status:'open' }));
+    // Update rotation state
+    Store.rounds.servedIds = Array.from(new Set([...Store.rounds.servedIds, ...chosenIds]));
+    saveStore(Store);
+    Store.loans=[...payloads, ...Store.loans]; saveStore(Store); show(el('#modal'), false); flash('Payout(s) created'); renderPayouts(); renderOverview(); renderProfile();
+  };
+}
+
+/***** Contributions *****/
+function renderContribs(){
+  const sel = el('#contribMember'); sel.innerHTML='';
+  Store.members.forEach(m=> sel.insertAdjacentHTML('beforeend', `<option value='${m.id}'>${escapeHtml(m.fullName)}</option>`));
+  el('#contribAmount').value = (Store.meta.defaultContributionCents/100).toFixed(2);
+  el('#contribDate').value = todayISO();
+  el('#recordContrib').onclick=()=>{ if(!isManager()) return alert('Manager login required');
+    const memberId = el('#contribMember').value; if(!memberId) return alert('Select member');
+    const amountCents = Math.max(0, Math.round(parseFloat(el('#contribAmount').value||'0')*100)); if(!amountCents) return alert('Enter a valid amount');
+    const date = el('#contribDate').value || todayISO();
+    Store.contributions=[{id:uid(), memberId, amountCents, date, note:'Monthly contribution'}, ...Store.contributions]; saveStore(Store); flash('Contribution recorded'); renderContribs(); renderOverview(); renderProfile();
+  };
+
+  const q = el('#contribSearch').value?.toLowerCase()||'';
+  const rows = Store.contributions.filter(c=>{ const m=Store.members.find(x=>x.id===c.memberId); return !q || m?.fullName?.toLowerCase().includes(q) }).sort((a,b)=> new Date(b.date)-new Date(a.date));
+  el('#contribTotal').textContent = 'Total: '+ ZAR.format(rows.reduce((a,r)=>a+r.amountCents,0)/100);
+  const tbody = el('#contribTable'); tbody.innerHTML='';
+  rows.forEach(r=>{ const m=Store.members.find(x=>x.id===r.memberId); tbody.insertAdjacentHTML('beforeend', `<tr><td>${r.date}</td><td>${escapeHtml(m?.fullName||'—')}</td><td>${ZAR.format(r.amountCents/100)}</td><td>${r.note||'—'}</td></tr>`) });
+}
+
+/***** Profile / Login & Signup *****/
+function renderProfile(){
+  // login recipients panel
+  const open = Store.loans.filter(l=>l.status==='open');
+  const wrap=el('#loginRecipients'); wrap.innerHTML='';
+  if(open.length===0){ show(el('#loginRecipientsEmpty'), true) } else { show(el('#loginRecipientsEmpty'), false); open.forEach(l=>{ const m=Store.members.find(x=>x.id===l.recipientId); if(!m) return; wrap.insertAdjacentHTML('beforeend', memberCardHTML(m, `<div class='small'><div><span class='muted'>Amount:</span> ${ZAR.format(l.amountCents/100)}</div><div><span class='muted'>Received:</span> ${l.date}</div><div><span class='muted'>Due:</span> ${l.dueDate}</div></div>`)) }) }
+
+  // session
+  if(isMember()){
+    show(el('#loginPanel'), false); show(el('#mePanel'), true);
+    const me = Store.members.find(m=>m.id===Store.session.memberId); if(!me){ setSession(null); return }
+    el('#meAvatar').src = me.photoDataUrl || avatarFromName(me.fullName);
+    el('#meName').textContent = me.fullName;
+    el('#meAge').textContent = me.age;
+    el('#meJoined').textContent = (me.joinedAt||'').slice(0,10);
+    el('#mePw').textContent = me.password;
+    el('#copyPw').onclick=()=>copy(me.password);
+    el('#switchAccount').onclick=()=> setSession(null);
+
+    const myContribs = Store.contributions.filter(c=>c.memberId===me.id).sort((a,b)=> new Date(b.date)-new Date(a.date));
+    const myLoans = Store.loans.filter(l=>l.recipientId===me.id).sort((a,b)=> new Date(b.date)-new Date(a.date));
+    el('#mePaid').textContent = ZAR.format(myContribs.reduce((a,c)=>a+c.amountCents,0)/100);
+    el('#meReceived').textContent = ZAR.format(myLoans.reduce((a,l)=>a+l.amountCents,0)/100);
+    const cWrap=el('#meContribs'); cWrap.innerHTML=''; myContribs.forEach(c=> cWrap.insertAdjacentHTML('beforeend', `<div class='row small' style='justify-content:space-between;border-bottom:1px solid #18202d;padding:4px 0'><span>${c.date}</span><span>${ZAR.format(c.amountCents/100)}</span></div>`)); if(myContribs.length===0) cWrap.innerHTML='<div class="small muted">No contributions yet.</div>';
+    const lWrap=el('#meLoans'); lWrap.innerHTML=''; myLoans.forEach(l=> lWrap.insertAdjacentHTML('beforeend', `<div class='card small'><div class='row' style='justify-content:space-between'><span>Amount</span><span>${ZAR.format(l.amountCents/100)}</span></div><div class='row muted small' style='justify-content:space-between'><span>Received</span><span>${l.date}</span></div><div class='row muted small' style='justify-content:space-between'><span>Due</span><span>${l.dueDate}</span></div><div class='small'>${l.status==='open'? `<span class='pill'>Open</span>`: `<span class='pill'>Paid ${l.paidBackAt||''}</span>`}</div></div>`)); if(myLoans.length===0) lWrap.innerHTML='<div class="small muted">You haven’t received money yet.</div>';
+    el('#meReminder').textContent = myLoans.some(l=> l.status==='open' && new Date(l.dueDate)<new Date()) ? 'Reminder: Your payout is overdue. Please settle as soon as possible.' : '';
+    return;
+  }
+
+  show(el('#loginPanel'), true); show(el('#mePanel'), false);
+  el('#loginBtn').onclick=()=>{
+    const role = el('#loginRole').value; const pw = el('#loginPw').value.trim(); if(!pw) return;
+    if(role==='manager'){ if(pw===Store.meta.managerPin){ setSession('manager'); flash('Manager logged in') } else alert('Incorrect manager PIN') }
+    else{
+      const m = Store.members.find(x=>x.password===pw); if(!m) return alert('Password not found. Ask your manager for your password or sign up.'); setSession('member', m.id);
+    }
+  };
+}
+
+function openSignup(){
+  const card=el('#modalCard');
+  card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Create Your Profile</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
+  <div class='grid'>
+    <label><div class='small muted'>Full name</div><input id='sName'></label>
+    <label><div class='small muted'>Age</div><input id='sAge' type='number' min='10' max='120'></label>
+    <label><div class='small muted'>Profile picture</div><input id='sPhoto' type='file' accept='image/*'></label>
+    <label><div class='small muted'>Your unique password</div><div class='row'><input id='sPw'><button class='btn' id='regen' style='padding:8px 10px'>Regenerate</button><button class='btn' id='copyPw' style='padding:8px 10px'>Copy</button></div></label>
+  </div>
+  <div class='row' style='justify-content:flex-end;margin-top:10px'><button class='btn primary' id='create'>Create Profile</button></div>`;
+  show(el('#modal'), true);
+  const pwInput=el('#sPw'); pwInput.value=genPassword(); el('#regen').onclick=()=> pwInput.value=genPassword(); el('#copyPw').onclick=()=>copy(pwInput.value);
+  let imgData=null; el('#sPhoto').onchange=async e=>{ const f=e.target.files?.[0]; if(f) imgData=await readAsDataURL(f) };
+  el('#xClose').onclick=()=>show(el('#modal'), false);
+  el('#create').onclick=()=>{
+    const fullName=el('#sName').value.trim(); const age=clamp(parseInt(el('#sAge').value)||0,10,120); const pw=pwInput.value.trim();
+    if(!fullName||!age) return alert('Full name and age are required');
+    if(Store.members.some(m=>m.password===pw)) return alert('Password already in use. Regenerate.');
+    const mem={ id:uid(), fullName, age, password:pw, photoDataUrl: imgData, joinedAt:new Date().toISOString(), active:true };
+    Store.members=[mem, ...Store.members]; saveStore(Store); show(el('#modal'), false); flash('Profile created — keep your password safe!'); switchTab('profile'); setSession('member', mem.id);
+  };
+}
+
+/***** Backup & Settings *****/
+function renderSettings(){
+  el('#defAmount').value = (Store.meta.defaultContributionCents/100).toFixed(2);
+  el('#managerEdit').value = Store.meta.managerPin;
+  el('#managerDisplay').textContent = Store.meta.managerPin;
+  el('#saveSettings').onclick=()=>{ if(!isManager()) return alert('Manager login required'); const cents = Math.max(0, Math.round(parseFloat(el('#defAmount').value||'0')*100)); Store.meta.defaultContributionCents=cents; Store.meta.managerPin=el('#managerEdit').value||Store.meta.managerPin; saveStore(Store); flash('Settings saved'); renderSettings() };
+  el('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(Store,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`money-circle-backup-${todayISO()}.json`; a.click() };
+  el('#importInput').onchange=async e=>{ const f=e.target.files?.[0]; if(!f) return; try{ const obj=JSON.parse(await f.text()); if(!obj.members||!obj.loans||!obj.contributions) throw new Error('Invalid file'); Store=obj; saveStore(Store); flash('Backup restored'); renderAll() } catch(err){ alert('Import failed: '+err.message) } };
+}
+
+/***** Initial boot *****/
+function renderAll(){ renderNav(); autoPlayTick(); renderOverview(); if(currentTab!=='overview') switchTab(currentTab) }
+renderAll();
+
+</script>
+
+<script type="module">
+  // Import the functions you need from the SDKs you need
+import { initializeApp } from "firebase/app";
+import { getAnalytics } from "firebase/analytics";
+// TODO: Add SDKs for Firebase products that you want to use
+// https://firebase.google.com/docs/web/setup#available-libraries
+
+// Your web app's Firebase configuration
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
+const firebaseConfig = {
+  apiKey: "AIzaSyCGkUdeWjVsd7Sw7PsNYpY3hrLKs0j3QOM",
+  authDomain: "money-circle-6a59e.firebaseapp.com",
+  projectId: "money-circle-6a59e",
+  storageBucket: "money-circle-6a59e.firebasestorage.app",
+  messagingSenderId: "566514508721",
+  appId: "1:566514508721:web:98b16bbfd5d7289af95390",
+  measurementId: "G-VQ3JGVQF97"
+};
+
+// Initialize Firebase
+const app = initializeApp(firebaseConfig);
+const analytics = getAnalytics(app);
+</script>
+
+<script type="module">
+  const { auth, db } = window.__fb;
+  // Pick a short group id (letters/numbers only). Everyone will use the same id.
+  const GROUP_ID = "money-circle-001";
+
+  // Single-document approach (simple for small groups):
+  // We'll store the whole app state under /groups/<GROUP_ID>
+  import { doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.x.x/firebase-firestore.js";
+  const docRef = doc(db, "groups", GROUP_ID);
+
+  // Allow writes only when the manager signs into Firebase (separate from the PIN)
+  window.cloudCanWrite = false;
+
+  // Read once, then live-update
+  async function cloudLoadOnce() {
+    try {
+      const snap = await getDoc(docRef);
+      if (snap.exists() && snap.data()?.store) {
+        // Replace local store with cloud store
+        window.Store = snap.data().store;
+        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+        if (window.renderAll) window.renderAll();
+      }
+    } catch (e) { console.warn("Cloud load failed", e); }
+  }
+
+  function cloudSubscribe() {
+    onSnapshot(docRef, (snap) => {
+      const data = snap.data();
+      if (data?.store) {
+        // Update view when anyone changes data
+        window.Store = data.store;
+        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+        if (window.renderAll) window.renderAll();
+      }
+    });
+  }
+
+  async function cloudSave(store) {
+    if (!window.cloudCanWrite) return; // ignore for members
+    try {
+      await setDoc(docRef, { store }, { merge: true });
+    } catch (e) { console.warn("Cloud save failed", e); }
+  }
+
+  // Expose
+  window.cloud = { loadOnce: cloudLoadOnce, subscribe: cloudSubscribe, save: cloudSave };
+
+  // Kick off
+  window.cloud.loadOnce();
+  window.cloud.subscribe();
+</script>
+
+
+</body>
+</html>
