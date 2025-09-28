@@ -364,18 +364,31 @@ function renderOverview(){
       recipientsPerMonth:1, amountCents: Store.meta.defaultContributionCents, lastRunDate:null };
     const ap = Store.meta.autoPlay;
     const nextRun = computeNextRunDate();
-    if(ap.enabled){
-      mc.innerHTML = `<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Manager Controls</h3><span class='pill'>Auto-Play ON</span></div>
-      <div class='grid grid-4'>
-        <div><div class='small muted'>Recipients/month</div><div class='kpi'>${ap.recipientsPerMonth||1}</div></div>
-        <div><div class='small muted'>Amount/recipient</div><div class='kpi'>${ZAR.format((ap.amountCents||Store.meta.defaultContributionCents)/100)}</div></div>
-        <div><div class='small muted'>Day of month</div><div class='kpi'>${ap.day}</div></div>
-        <div><div class='small muted'>Next run</div><div class='kpi'>${nextRun||'—'}</div></div>
+    const cloudRow = `
+      <div class='row' style='gap:8px;margin:8px 0'>
+        <button class='btn' id='cloudSignIn'>Enable Cloud Sync</button>
+        <span class='pill' id='cloudStatus'>Offline</span>
       </div>
-      <div class='row' style='margin-top:8px'>
-        <button class='btn' id='runNow'>▶ Run this month now</button>
-        <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
-      </div>`;
+    `;
+    if(ap.enabled){
+  mc.innerHTML = `
+    <div class='row' style='justify-content:space-between'>
+      <h3 style='margin:0'>Manager Controls</h3>
+      <span class='pill'>Auto-Play ON</span>
+    </div>
+    ${cloudRow}
+    <div class='grid grid-4'>
+      <div><div class='small muted'>Recipients/month</div><div class='kpi'>${ap.recipientsPerMonth||1}</div></div>
+      <div><div class='small muted'>Amount/recipient</div><div class='kpi'>${ZAR.format((ap.amountCents||Store.meta.defaultContributionCents)/100)}</div></div>
+      <div><div class='small muted'>Day of month</div><div class='kpi'>${ap.day}</div></div>
+      <div><div class='small muted'>Next run</div><div class='kpi'>${nextRun||'—'}</div></div>
+    </div>
+    <div class='row' style='margin-top:8px'>
+      <button class='btn' id='runNow'>▶ Run this month now</button>
+      <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
+    </div>`;
+  // existing button wiring (runNow/stopAuto) stays as-is...
+
       el('#runNow').onclick=()=>{
         const d=todayISO(); const amt=ap.amountCents||Store.meta.defaultContributionCents;
         createPayoutBatch(d, ap.recipientsPerMonth||1, amt);
@@ -384,15 +397,30 @@ function renderOverview(){
       };
       el('#stopAuto').onclick=()=>{ ap.enabled=false; saveStore(Store); flash('Auto-Play stopped'); renderOverview(); };
     } else {
-      mc.innerHTML = `<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Manager Controls</h3><span class='pill'>Auto-Play OFF</span></div>
-      <div class='grid grid-4' style='align-items:end'>
-        <label><div class='small muted'>Recipients per month</div><input id='apK' type='number' min='1' value='${ap.recipientsPerMonth||1}'></label>
-        <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='apAmt' type='number' min='0' step='0.01' value='${((ap.amountCents??Store.meta.defaultContributionCents)/100).toFixed(2)}'></label>
-        <label><div class='small muted'>Day of month</div><input id='apDay' type='number' min='1' max='28' value='${ap.day||new Date().getDate()}'></label>
-        <button class='btn primary' id='startAuto'>▶ Start Play</button>
-      </div>
-      <div class='small muted'>Auto-Play rotates randomly without repeats; once everyone has received, a new round starts.</div>`;
-      el('#startAuto').onclick=()=>{
+  mc.innerHTML = `
+    <div class='row' style='justify-content:space-between'>
+      <h3 style='margin:0'>Manager Controls</h3>
+      <span class='pill'>Auto-Play OFF</span>
+    </div>
+    ${cloudRow}
+    <div class='grid grid-4' style='align-items:end'>
+      <label><div class='small muted'>Recipients per month</div><input id='apK' type='number' min='1' value='${ap.recipientsPerMonth||1}'></label>
+      <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='apAmt' type='number' min='0' step='0.01' value='${((ap.amountCents??Store.meta.defaultContributionCents)/100).toFixed(2)}'></label>
+      <label><div class='small muted'>Day of month</div><input id='apDay' type='number' min='1' max='28' value='${ap.day||new Date().getDate()}'></label>
+      <button class='btn primary' id='startAuto'>▶ Start Play</button>
+    </div>
+    <div class='small muted'>Auto-Play rotates randomly without repeats; once everyone has received, a new round starts.</div>`;
+  // existing button wiring for startAuto stays as-is...
+          const cloudBtn = el('#cloudSignIn');
+        const cloudStatus = el('#cloudStatus');
+        if (cloudBtn && cloudStatus) {
+          cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
+          cloudBtn.onclick = async () => {
+            // calls the sign-in helper from your firebase-boot script
+            await window.cloud.signIn();
+            cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
+          };
+        }el('#startAuto').onclick=()=>{
         const k=Math.max(1, parseInt(el('#apK').value)||1);
         const day=Math.min(28, Math.max(1, parseInt(el('#apDay').value)||new Date().getDate()));
         const amtCents=Math.max(0, Math.round(parseFloat(el('#apAmt').value||'0')*100));
@@ -758,84 +786,112 @@ renderAll();
 
 </script>
 
-<script type="module" id="fb-init">
+<script type="module" id="firebase-boot">
+  // Firebase v10 (modular) — pinned versions to avoid cache weirdness
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-  import { getFirestore } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
+  // 🔧 Use your project config (yours below is fine)
   const firebaseConfig = {
     apiKey: "AIzaSyCGkUdeWjVsd7Sw7PsNYpY3hrLKs0j3QOM",
     authDomain: "money-circle-6a59e.firebaseapp.com",
     projectId: "money-circle-6a59e",
-    storageBucket: "money-circle-6a59e.firebasestorage.app",
+    storageBucket: "money-circle-6a59e.appspot.com",      // optional / corrected format
     messagingSenderId: "566514508721",
     appId: "1:566514508721:web:98b16bbfd5d7289af95390",
     measurementId: "G-VQ3JGVQF97"
   };
 
+  // Init
   const app = initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db = getFirestore(app);
 
-  // Make available to your other scripts
+  // Expose firebase to the rest of your page
   window.__fb = { app, auth, db, signInWithEmailAndPassword };
+
+  // ===== Cloud adapter (single document: groups/<GROUP_ID>) =====
+  const GROUP_ID = "money-circle-001";
+  const groupDoc = doc(db, "groups", GROUP_ID);
+
+  // Will be true after Firebase sign-in
   window.cloudCanWrite = false;
 
-  console.log("✅ Firebase initialized");
-  window.dispatchEvent(new Event("fb-ready"));
-</script>
-
-<script type="module" id="cloud-sync">
-  import { doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-
-  function setupCloud() {
-    const db = window.__fb?.db;
-    if (!db) { console.warn("Firestore not available"); return; }
-
-    const GROUP_ID = "money-circle-001";   // use the SAME value on all devices
-    const docRef = doc(db, "groups", GROUP_ID);
-
-    async function cloudLoadOnce() {
+  // Cloud helpers used by your app code
+  window.cloud = {
+    async loadOnce() {
       try {
-        const snap = await getDoc(docRef);
+        const snap = await getDoc(groupDoc);
+        console.log("[cloud] loadOnce exists:", snap.exists());
         if (snap.exists() && snap.data()?.store) {
           window.Store = snap.data().store;
           localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-          if (window.renderAll) window.renderAll();
+          window.renderAll?.();
         }
-        console.log("☁️ Cloud loaded");
-      } catch (e) { console.warn("Cloud load failed", e); }
-    }
-
-    function cloudSubscribe() {
-      onSnapshot(docRef, (snap) => {
-        const data = snap.data();
-        if (data?.store) {
-          window.Store = data.store;
-          localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-          if (window.renderAll) window.renderAll();
-          console.log("🔄 Cloud update received");
-        }
-      });
-    }
-
-    async function cloudSave(store) {
-      if (!window.cloudCanWrite) return; // writes only when manager is signed in
+      } catch (e) {
+        console.error("[cloud] loadOnce error", e);
+      }
+    },
+    subscribe() {
       try {
-        await setDoc(docRef, { store }, { merge: true });
-        console.log("✅ Cloud saved");
-      } catch (e) { console.warn("Cloud save failed", e); }
-    }
+        onSnapshot(
+          groupDoc,
+          (snap) => {
+            console.log("[cloud] onSnapshot", snap.metadata.fromCache ? "(cache)" : "(server)");
+            const data = snap.data();
+            if (data?.store) {
+              window.Store = data.store;
+              localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+              window.renderAll?.();
+            }
+          },
+          (err) => console.error("[cloud] snapshot error", err)
+        );
+      } catch (e) {
+        console.error("[cloud] subscribe error", e);
+      }
+    },
+    async save(store) {
+      if (!window.cloudCanWrite) {
+        console.log("[cloud] save skipped (not signed in)");
+        return;
+      }
+      try {
+        await setDoc(groupDoc, { store, updatedAt: new Date() }, { merge: true });
+        console.log("[cloud] saved to Firestore");
+      } catch (e) {
+        console.error("[cloud] save error", e);
+      }
+    },
+    async signIn() {
+      const email = prompt("Cloud email");
+      const pass  = prompt("Cloud password");
+      if (!email || !pass) return;
+      try {
+        await signInWithEmailAndPassword(auth, email, pass);
+        window.cloudCanWrite = true;
+        console.log("[cloud] sign-in OK");
+        alert("Cloud sync enabled");
+        // push current state so others see it immediately
+        window.cloud.save(window.Store);
+      } catch (e) {
+        console.error("[cloud] signIn error", e);
+        alert("Cloud sign-in failed: " + (e.code || e.message));
+      }
+    },
+  };
 
-    window.cloud = { loadOnce: cloudLoadOnce, subscribe: cloudSubscribe, save: cloudSave };
-    window.cloud.loadOnce();
-    window.cloud.subscribe();
-  }
+  // Reflect auth state (so a refresh keeps you “online”)
+  onAuthStateChanged(auth, (user) => {
+    window.cloudCanWrite = !!user;
+    console.log("[cloud] auth state:", user ? "signed-in" : "signed-out");
+  });
 
-  if (window.__fb?.db) setupCloud();
-  else window.addEventListener("fb-ready", setupCloud, { once: true });
+  // Start listening
+  window.cloud.loadOnce();
+  window.cloud.subscribe();
 </script>
-
 
 </body>
 </html>
