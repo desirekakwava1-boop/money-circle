@@ -134,6 +134,30 @@ nav button{
 nav{ scroll-snap-type:x proximity; }
 nav button{ scroll-snap-align:start; }
 
+/* Avoid iOS input zoom by ensuring 16px+ on controls */
+@media (max-width: 640px){
+  input, select, textarea, button {
+    font-size:16px !important;
+  }
+  /* just to be explicit for your common fields */
+  #managerPinInput,
+  #loginPw,
+  #contribAmount,
+  #contribDate,
+  #pDate,
+  #pDue,
+  #mAge,
+  #sAge {
+    font-size:16px !important;
+  }
+}
+
+/* Slightly larger base text on small screens for readability */
+@media (max-width: 640px){
+  body { font-size:16px; }
+}
+
+
  </style>
 
 </head>
