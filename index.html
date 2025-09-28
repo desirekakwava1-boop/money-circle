@@ -999,6 +999,29 @@ renderAll();
 
     // push your current local state to Firestore immediately
     if (window.Store) await cloudSave(window.Store);
+async function signInManager() {
+  if (auth.currentUser) {
+    window.cloudCanWrite = true;
+    updateCloudStatusPill?.();
+    window.flash?.("Cloud: already signed in");
+    return;
+  }
+  const savedEmail = localStorage.getItem("cloudEmail") || "";
+  const email = prompt("Cloud email (Firebase Auth)", savedEmail);
+  const pass  = prompt("Cloud password");         // don't store this
+  if (!email || !pass) return;
+
+  await setPersistence(auth, browserLocalPersistence);
+  await signInWithEmailAndPassword(auth, email, pass);
+  localStorage.setItem("cloudEmail", email);      // save email only
+
+  window.cloudCanWrite = true;
+  updateCloudStatusPill?.();
+  window.flash?.("Cloud: manager signed in (remembered)");
+  if (window.Store) await cloudSave(window.Store);
+}
+
+
   }
 
   async function signOutManager() {
