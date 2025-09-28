@@ -100,6 +100,39 @@
   th, td { padding: 8px 12px; }
 }
 
+/* === Top nav: horizontal pills (mobile-friendly) === */
+nav{
+  display:flex;
+  gap:8px;
+  flex-wrap:nowrap;                /* keep in one row */
+  overflow-x:auto;                 /* allow side scroll */
+  -webkit-overflow-scrolling:touch;
+  white-space:nowrap;
+  scrollbar-width:none;            /* hide scrollbar (Firefox) */
+  margin-left:8px;                 /* tighter on small screens */
+  padding-bottom:6px;              /* avoid clipping shadow */
+}
+nav::-webkit-scrollbar{ display:none } /* hide scrollbar (WebKit) */
+nav button{
+  flex:0 0 auto;                   /* don’t stretch */
+  white-space:nowrap;              /* keep labels on one line */
+}
+
+/* Put nav on its own line on small screens; shrink buttons a bit */
+@media (max-width:640px){
+  header .container{ gap:8px; }
+  .row{ flex-wrap:wrap; }          /* your header can wrap */
+  nav{ order:3; width:100%; margin-left:0; }
+  nav button{ padding:8px 12px; font-size:13px; }
+}
+
+/* Restore your larger layouts on desktop */
+@media (min-width:1024px){
+  nav{ flex-wrap:wrap; overflow-x:visible; white-space:normal; }
+}
+
+nav{ scroll-snap-type:x proximity; }
+nav button{ scroll-snap-align:start; }
 
  </style>
 
