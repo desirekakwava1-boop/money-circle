@@ -47,7 +47,62 @@
     .overflow{max-height:280px;overflow:auto;padding-right:6px}
     .kpi{font-weight:600;font-size:18px;margin-top:4px}
     .tag{font-size:11px;padding:2px 6px;border-radius:8px;border:1px solid #334155;background:#0b0f14}
-  </style>
+ 
+/* === Mobile-first fixes (add at the END of your <style>) === */
+
+/* 1) Grids: default to 1 column on small screens */
+.grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
+
+/* 2) Small ≥640px: let some grids go to 2 columns */
+@media (min-width: 640px) {
+  .grid-2 { grid-template-columns: repeat(2, 1fr); }
+  .grid-3 { grid-template-columns: repeat(2, 1fr); }
+  .grid-4 { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 3) Desktop ≥1024px: restore full layouts */
+@media (min-width: 1024px) {
+  .grid-3 { grid-template-columns: repeat(3, 1fr); }
+  .grid-4 { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* 4) Let rows wrap on small screens; keep header tidy */
+@media (max-width: 640px) {
+  .row { flex-wrap: wrap; }
+  header .container { gap: 8px; }
+  nav { gap: 6px; overflow-x: auto; }
+  .brand .logo { width: 28px; height: 28px; border-radius: 10px; }
+  .container { padding: 10px 12px; }
+}
+
+/* 5) Inputs/Search: avoid fixed widths on mobile */
+@media (max-width: 640px) {
+  input, select, textarea { width: 100%; box-sizing: border-box; }
+
+  /* override inline widths */
+  #memberSearch,
+  #payoutSearch,
+  #contribSearch { width: 100% !important; }
+
+  /* PIN can stay smaller */
+  #managerPinInput { width: 120px !important; }
+}
+
+/* 6) Cards/avatars scale a bit smaller on phones */
+@media (max-width: 640px) {
+  .avatar { width: 48px; height: 48px; }
+  .img-s  { width: 40px; height: 40px; }
+}
+
+/* 7) Tables: enable horizontal scroll instead of squishing */
+@media (max-width: 640px) {
+  table { display: block; overflow-x: auto; white-space: nowrap; }
+  th, td { padding: 8px 12px; }
+}
+
+
+ </style>
+
 </head>
 <body>
 <header>
@@ -316,9 +371,6 @@ pT.onclick = async () => {
   if (pIn.value === Store.meta.managerPin) { 
     setSession('manager'); 
     flash('Manager logged in');
-    if (!window.cloudCanWrite && window.tryCloudSignIn) {
-  await window.tryCloudSignIn();
-}
 
     // Ask once for Firebase manager email/password to enable cloud writes
     if (!window.cloudCanWrite && window.__fb?.auth) {
@@ -330,9 +382,6 @@ pT.onclick = async () => {
           await signInWithEmailAndPassword(window.__fb.auth, email, pass);
           window.cloudCanWrite = true;
           flash("Cloud: manager signed in");
-          // ⬇️ Force the first upload so other devices get your current state
-        if (window.cloud?.save && window.Store) {
-          window.cloud.save(window.Store);}
         } catch (e) {
           alert("Cloud sign-in failed. Viewing only.");
         }
@@ -361,69 +410,63 @@ function switchTab(tab){ currentTab=tab; renderNav(); ['overview','members','pay
 function renderOverview(){
   // Manager Controls (Start/Stop Auto-Play)
   const mc = el('#managerControls');
-  if(isManager()){
+  if (isManager()){
     show(mc, true);
-    Store.meta.autoPlay = Store.meta.autoPlay || { enabled:false, startedAt:null, day:1,
-      recipientsPerMonth:1, amountCents: Store.meta.defaultContributionCents, lastRunDate:null };
+    Store.meta.autoPlay = Store.meta.autoPlay || {
+      enabled:false, startedAt:null, day:1, recipientsPerMonth:1,
+      amountCents: Store.meta.defaultContributionCents, lastRunDate:null
+    };
     const ap = Store.meta.autoPlay;
     const nextRun = computeNextRunDate();
+
+    // ⬇️ NEW: Cloud Sync controls shown only to manager
     const cloudRow = `
       <div class='row' style='gap:8px;margin:8px 0'>
         <button class='btn' id='cloudSignIn'>Enable Cloud Sync</button>
-        <span class='pill' id='cloudStatus'>Offline</span>
+        <button class='btn' id='cloudSignOut'>Sign out</button>
+        <span class='pill' id='cloudStatus'>${window.cloudCanWrite ? 'Online' : 'Offline'}</span>
       </div>
     `;
-    if(ap.enabled){
-  mc.innerHTML = `
-    <div class='row' style='justify-content:space-between'>
-      <h3 style='margin:0'>Manager Controls</h3>
-      <span class='pill'>Auto-Play ON</span>
-    </div>
-    ${cloudRow}
-    <div class='grid grid-4'>
-      <div><div class='small muted'>Recipients/month</div><div class='kpi'>${ap.recipientsPerMonth||1}</div></div>
-      <div><div class='small muted'>Amount/recipient</div><div class='kpi'>${ZAR.format((ap.amountCents||Store.meta.defaultContributionCents)/100)}</div></div>
-      <div><div class='small muted'>Day of month</div><div class='kpi'>${ap.day}</div></div>
-      <div><div class='small muted'>Next run</div><div class='kpi'>${nextRun||'—'}</div></div>
-    </div>
-    <div class='row' style='margin-top:8px'>
-      <button class='btn' id='runNow'>▶ Run this month now</button>
-      <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
-    </div>`;
-  // existing button wiring (runNow/stopAuto) stays as-is...
 
-      el('#runNow').onclick=()=>{
+    if (ap.enabled){
+      mc.innerHTML = `
+        <div class='row' style='justify-content:space-between'>
+          <h3 style='margin:0'>Manager Controls</h3>
+          <span class='pill'>Auto-Play ON</span>
+        </div>
+        ${cloudRow}
+        <div class='grid grid-4'>
+          <div><div class='small muted'>Recipients/month</div><div class='kpi'>${ap.recipientsPerMonth||1}</div></div>
+          <div><div class='small muted'>Amount/recipient</div><div class='kpi'>${ZAR.format((ap.amountCents||Store.meta.defaultContributionCents)/100)}</div></div>
+          <div><div class='small muted'>Day of month</div><div class='kpi'>${ap.day}</div></div>
+          <div><div class='small muted'>Next run</div><div class='kpi'>${nextRun||'—'}</div></div>
+        </div>
+        <div class='row' style='margin-top:8px'>
+          <button class='btn' id='runNow'>▶ Run this month now</button>
+          <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
+        </div>`;
+      el('#runNow').onclick = () => {
         const d=todayISO(); const amt=ap.amountCents||Store.meta.defaultContributionCents;
         createPayoutBatch(d, ap.recipientsPerMonth||1, amt);
         ap.lastRunDate=d; saveStore(Store); flash('Auto-Play: run created');
         renderOverview(); renderPayouts(); renderProfile();
       };
-      el('#stopAuto').onclick=()=>{ ap.enabled=false; saveStore(Store); flash('Auto-Play stopped'); renderOverview(); };
+      el('#stopAuto').onclick = () => { ap.enabled=false; saveStore(Store); flash('Auto-Play stopped'); renderOverview(); };
     } else {
-  mc.innerHTML = `
-    <div class='row' style='justify-content:space-between'>
-      <h3 style='margin:0'>Manager Controls</h3>
-      <span class='pill'>Auto-Play OFF</span>
-    </div>
-    ${cloudRow}
-    <div class='grid grid-4' style='align-items:end'>
-      <label><div class='small muted'>Recipients per month</div><input id='apK' type='number' min='1' value='${ap.recipientsPerMonth||1}'></label>
-      <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='apAmt' type='number' min='0' step='0.01' value='${((ap.amountCents??Store.meta.defaultContributionCents)/100).toFixed(2)}'></label>
-      <label><div class='small muted'>Day of month</div><input id='apDay' type='number' min='1' max='28' value='${ap.day||new Date().getDate()}'></label>
-      <button class='btn primary' id='startAuto'>▶ Start Play</button>
-    </div>
-    <div class='small muted'>Auto-Play rotates randomly without repeats; once everyone has received, a new round starts.</div>`;
-  // existing button wiring for startAuto stays as-is...
-          const cloudBtn = el('#cloudSignIn');
-        const cloudStatus = el('#cloudStatus');
-        if (cloudBtn && cloudStatus) {
-          cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
-          cloudBtn.onclick = async () => {
-            // calls the sign-in helper from your firebase-boot script
-            await window.tryCloudSignIn?.(); 
-            cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
-          };
-        }el('#startAuto').onclick=()=>{
+      mc.innerHTML = `
+        <div class='row' style='justify-content:space-between'>
+          <h3 style='margin:0'>Manager Controls</h3>
+          <span class='pill'>Auto-Play OFF</span>
+        </div>
+        ${cloudRow}
+        <div class='grid grid-4' style='align-items:end'>
+          <label><div class='small muted'>Recipients per month</div><input id='apK' type='number' min='1' value='${ap.recipientsPerMonth||1}'></label>
+          <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='apAmt' type='number' min='0' step='0.01' value='${((ap.amountCents??Store.meta.defaultContributionCents)/100).toFixed(2)}'></label>
+          <label><div class='small muted'>Day of month</div><input id='apDay' type='number' min='1' max='28' value='${ap.day||new Date().getDate()}'></label>
+          <button class='btn primary' id='startAuto'>▶ Start Play</button>
+        </div>
+        <div class='small muted'>Auto-Play rotates randomly without repeats; once everyone has received, a new round starts.</div>`;
+      el('#startAuto').onclick = () => {
         const k=Math.max(1, parseInt(el('#apK').value)||1);
         const day=Math.min(28, Math.max(1, parseInt(el('#apDay').value)||new Date().getDate()));
         const amtCents=Math.max(0, Math.round(parseFloat(el('#apAmt').value||'0')*100));
@@ -432,9 +475,37 @@ function renderOverview(){
         saveStore(Store); flash('Auto-Play started'); renderOverview();
       };
     }
-  } else { show(mc, false); }
 
-  // KPIs + open recipients (existing logic)
+    // ⬇️ NEW: Wire cloud buttons safely
+    const cloudBtn = el('#cloudSignIn');
+    const cloudOut = el('#cloudSignOut');
+    const cloudStatus = el('#cloudStatus');
+
+    if (cloudBtn){
+      cloudBtn.onclick = async () => {
+        try{
+          if (window.cloud?.signIn) {
+            await window.cloud.signIn();
+          } else {
+            alert('Cloud not ready. Make sure the Firebase block is included.');
+          }
+        } finally {
+          if (cloudStatus) cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
+        }
+      };
+    }
+    if (cloudOut){
+      cloudOut.onclick = async () => {
+        if (window.cloud?.signOut) await window.cloud.signOut();
+        if (cloudStatus) cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
+      };
+    }
+
+  } else {
+    show(mc, false);
+  }
+
+  // KPIs + open recipients (unchanged)
   const activeMembers = Store.members.filter(m=>m.active!==false).length;
   el('#stat-members').textContent=String(activeMembers);
   const totalContrib = Store.contributions.reduce((a,c)=>a+(c.amountCents||0),0);
@@ -450,7 +521,8 @@ function renderOverview(){
 
   const open = Store.loans.filter(l=>l.status==='open');
   const wrap=el('#openRecipients'); wrap.innerHTML='';
-  if(open.length===0){ show(el('#noOpenRecipients'), true); } else {
+  if(open.length===0){ show(el('#noOpenRecipients'), true); }
+  else {
     show(el('#noOpenRecipients'), false);
     open.forEach(l=>{
       const m = Store.members.find(x=>x.id===l.recipientId); if(!m) return;
@@ -462,6 +534,7 @@ function renderOverview(){
     });
   }
 }
+
 
 
 function memberCardHTML(m, extra=''){
@@ -791,34 +864,45 @@ renderAll();
 
 
 <script type="module">
-  // ---- Firebase (single block) ----
+  // ------- Firebase (ESM via Google CDN) -------
   import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getAuth,
+    setPersistence,
+    browserLocalPersistence,
+    signInWithEmailAndPassword,
+    signOut,
+    onAuthStateChanged,
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  // Your project config
+  // Your config
   const firebaseConfig = {
     apiKey: "AIzaSyCGkUdeWjVsd7Sw7PsNYpY3hrLKs0j3QOM",
     authDomain: "money-circle-6a59e.firebaseapp.com",
     projectId: "money-circle-6a59e",
-    storageBucket: "money-circle-6a59e.appspot.com",   // <-- important: .appspot.com
+    storageBucket: "money-circle-6a59e.appspot.com",
     messagingSenderId: "566514508721",
     appId: "1:566514508721:web:98b16bbfd5d7289af95390",
     measurementId: "G-VQ3JGVQF97"
   };
 
-  // Initialize exactly once
+  // Init exactly once
   const app  = getApps().length ? getApp() : initializeApp(firebaseConfig);
   const auth = getAuth(app);
   const db   = getFirestore(app);
 
-  // Expose for the rest of your page
-  window.__fb = { app, auth, db, signInWithEmailAndPassword };
+  // 🔒 Stay signed in across reloads (the key to “remember me”)
+  await setPersistence(auth, browserLocalPersistence);
 
-  // ---- Firestore cloud sync wiring ----
+  // Expose if you want to debug in the console
+  window.__fb = { app, auth, db };
+
+  // ------- Firestore “cloud” wiring (one doc per group) -------
   const GROUP_ID = "money-circle-001";
   const docRef   = doc(db, "groups", GROUP_ID);
-  window.cloudCanWrite = window.cloudCanWrite || false;
+
+  window.cloudCanWrite = false;
 
   async function cloudLoadOnce() {
     try {
@@ -841,11 +925,11 @@ renderAll();
         localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
         window.renderAll?.();
       }
-    }, (err) => console.warn("Cloud subscribe error:", err));
+    }, err => console.warn("Cloud subscribe error:", err));
   }
 
   async function cloudSave(store) {
-    if (!window.cloudCanWrite) return;
+    if (!window.cloudCanWrite) return;           // writes only when manager is signed in
     try {
       await setDoc(docRef, { store }, { merge: true });
     } catch (e) {
@@ -853,27 +937,67 @@ renderAll();
     }
   }
 
-  window.cloud = { loadOnce: cloudLoadOnce, subscribe: cloudSubscribe, save: cloudSave };
+  // ✅ “Remember me”: keep the email to prefill prompt (never store the password)
+  const REMEMBER_EMAIL_KEY = "managerEmail";
 
-  // Helper for manager sign-in (called from your non-module script)
-  window.tryCloudSignIn = async () => {
-    const email = prompt("Cloud email (Firebase Auth)");
-    const pass  = prompt("Cloud password");
-    if (!email || !pass) return;
-    try {
-      await signInWithEmailAndPassword(auth, email, pass);
+  async function signInManager() {
+    // If already signed in (persistence), nothing to do
+    if (auth.currentUser) {
       window.cloudCanWrite = true;
-      window.flash?.("Cloud: manager signed in");
-      // push current state so other devices get it
-      window.Store && window.cloud.save(window.Store);
-    } catch (e) {
-      alert("Cloud sign-in failed: " + (e?.message || e));
+      window.flash?.("Cloud: already signed in");
+      return;
     }
+
+    const rememberedEmail = localStorage.getItem(REMEMBER_EMAIL_KEY) || "";
+    const email = prompt("Cloud email (Firebase Auth)", rememberedEmail);
+    if (!email) return;
+    const pass  = prompt("Cloud password");
+    if (!pass) return;
+
+    await signInWithEmailAndPassword(auth, email, pass);
+
+    // remember the email so the next prompt is prefilled (password is not stored)
+    localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+
+    window.cloudCanWrite = true;
+    window.flash?.("Cloud: manager signed in");
+
+    // push your current local state to Firestore immediately
+    if (window.Store) await cloudSave(window.Store);
+  }
+
+  async function signOutManager() {
+    await signOut(auth);
+    window.cloudCanWrite = false;
+    window.flash?.("Cloud: signed out");
+  }
+
+  // Keep flag in sync with auth state (persistence means this will fire on reload)
+  onAuthStateChanged(auth, (user) => {
+    window.cloudCanWrite = !!user;
+  });
+
+  // Public API your UI can call
+  window.cloud = {
+    loadOnce: cloudLoadOnce,
+    subscribe: cloudSubscribe,
+    save: cloudSave,
+    signIn: signInManager,
+    signOut: signOutManager,
   };
 
-  // Start reads for everyone
+  // Start reading immediately (reads do not require sign-in)
   window.cloud.loadOnce();
   window.cloud.subscribe();
+</script>
+
+<script>
+  // Safe no-op stubs so clicks never crash if cloud/Firebase isn't wired yet
+  window.cloud = window.cloud || {};
+  window.cloud.signIn  = window.cloud.signIn  || (async () => alert('Cloud not ready yet.'));
+  window.cloud.signOut = window.cloud.signOut || (async () => {});
+  window.cloud.save    = window.cloud.save    || (async () => {});
+  window.cloudCanWrite = window.cloudCanWrite || false;
 </script>
 
 
