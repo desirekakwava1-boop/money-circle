@@ -316,6 +316,9 @@ pT.onclick = async () => {
   if (pIn.value === Store.meta.managerPin) { 
     setSession('manager'); 
     flash('Manager logged in');
+    if (!window.cloudCanWrite && window.tryCloudSignIn) {
+  await window.tryCloudSignIn();
+}
 
     // Ask once for Firebase manager email/password to enable cloud writes
     if (!window.cloudCanWrite && window.__fb?.auth) {
@@ -786,112 +789,86 @@ renderAll();
 
 </script>
 
-<script type="module" id="firebase-boot">
-  // Firebase v10 (modular) — pinned versions to avoid cache weirdness
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
-  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+<script type="module">
+  import { initializeApp, getApps, getApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import { getFirestore, doc, getDoc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-  // 🔧 Use your project config (yours below is fine)
+  // Your project config (one copy only)
   const firebaseConfig = {
     apiKey: "AIzaSyCGkUdeWjVsd7Sw7PsNYpY3hrLKs0j3QOM",
     authDomain: "money-circle-6a59e.firebaseapp.com",
     projectId: "money-circle-6a59e",
-    storageBucket: "money-circle-6a59e.appspot.com",      // optional / corrected format
+    storageBucket: "money-circle-6a59e.appspot.com",   // ✅ correct
     messagingSenderId: "566514508721",
     appId: "1:566514508721:web:98b16bbfd5d7289af95390",
     measurementId: "G-VQ3JGVQF97"
   };
 
-  // Init
-  const app = initializeApp(firebaseConfig);
+  // Initialize once
+  const app  = getApps().length ? getApp() : initializeApp(firebaseConfig);
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  const db   = getFirestore(app);
 
-  // Expose firebase to the rest of your page
+  // expose for your non-module script
   window.__fb = { app, auth, db, signInWithEmailAndPassword };
 
-  // ===== Cloud adapter (single document: groups/<GROUP_ID>) =====
+  // ---------- Cloud sync wiring ----------
   const GROUP_ID = "money-circle-001";
-  const groupDoc = doc(db, "groups", GROUP_ID);
+  const docRef   = doc(db, "groups", GROUP_ID);
+  window.cloudCanWrite = window.cloudCanWrite || false;
 
-  // Will be true after Firebase sign-in
-  window.cloudCanWrite = false;
+  async function cloudLoadOnce() {
+    try {
+      const snap = await getDoc(docRef);
+      if (snap.exists() && snap.data()?.store) {
+        window.Store = snap.data().store;
+        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+        window.renderAll?.();
+      }
+    } catch (e) { console.warn("Cloud load failed:", e); }
+  }
 
-  // Cloud helpers used by your app code
-  window.cloud = {
-    async loadOnce() {
-      try {
-        const snap = await getDoc(groupDoc);
-        console.log("[cloud] loadOnce exists:", snap.exists());
-        if (snap.exists() && snap.data()?.store) {
-          window.Store = snap.data().store;
-          localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-          window.renderAll?.();
-        }
-      } catch (e) {
-        console.error("[cloud] loadOnce error", e);
+  function cloudSubscribe() {
+    onSnapshot(docRef, (snap) => {
+      const data = snap.data();
+      if (data?.store) {
+        window.Store = data.store;
+        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+        window.renderAll?.();
       }
-    },
-    subscribe() {
-      try {
-        onSnapshot(
-          groupDoc,
-          (snap) => {
-            console.log("[cloud] onSnapshot", snap.metadata.fromCache ? "(cache)" : "(server)");
-            const data = snap.data();
-            if (data?.store) {
-              window.Store = data.store;
-              localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-              window.renderAll?.();
-            }
-          },
-          (err) => console.error("[cloud] snapshot error", err)
-        );
-      } catch (e) {
-        console.error("[cloud] subscribe error", e);
-      }
-    },
-    async save(store) {
-      if (!window.cloudCanWrite) {
-        console.log("[cloud] save skipped (not signed in)");
-        return;
-      }
-      try {
-        await setDoc(groupDoc, { store, updatedAt: new Date() }, { merge: true });
-        console.log("[cloud] saved to Firestore");
-      } catch (e) {
-        console.error("[cloud] save error", e);
-      }
-    },
-    async signIn() {
-      const email = prompt("Cloud email");
-      const pass  = prompt("Cloud password");
-      if (!email || !pass) return;
-      try {
-        await signInWithEmailAndPassword(auth, email, pass);
-        window.cloudCanWrite = true;
-        console.log("[cloud] sign-in OK");
-        alert("Cloud sync enabled");
-        // push current state so others see it immediately
-        window.cloud.save(window.Store);
-      } catch (e) {
-        console.error("[cloud] signIn error", e);
-        alert("Cloud sign-in failed: " + (e.code || e.message));
-      }
-    },
+    }, (err) => console.warn("Cloud subscribe error:", err));
+  }
+
+  async function cloudSave(store) {
+    if (!window.cloudCanWrite) return;
+    try { await setDoc(docRef, { store }, { merge: true }); }
+    catch (e) { console.warn("Cloud save failed:", e); }
+  }
+
+  window.cloud = { loadOnce: cloudLoadOnce, subscribe: cloudSubscribe, save: cloudSave };
+
+  // Sign-in helper (call this after manager PIN login)
+  window.tryCloudSignIn = async () => {
+    const email = prompt("Cloud email (Firebase Auth)");
+    const pass  = prompt("Cloud password");
+    if (!email || !pass) return;
+    try {
+      await signInWithEmailAndPassword(auth, email, pass);
+      window.cloudCanWrite = true;
+      window.flash?.("Cloud: manager signed in");
+      window.cloud?.save?.(window.Store); // push current state
+    } catch (e) {
+      alert("Cloud sign-in failed: " + (e?.message || e));
+    }
   };
 
-  // Reflect auth state (so a refresh keeps you “online”)
-  onAuthStateChanged(auth, (user) => {
-    window.cloudCanWrite = !!user;
-    console.log("[cloud] auth state:", user ? "signed-in" : "signed-out");
-  });
-
-  // Start listening
+  // start listening (reads for everyone)
   window.cloud.loadOnce();
   window.cloud.subscribe();
 </script>
+
+
 
 </body>
 </html>
