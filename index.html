@@ -420,7 +420,7 @@ function renderOverview(){
           cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
           cloudBtn.onclick = async () => {
             // calls the sign-in helper from your firebase-boot script
-            await window.cloud.signIn();
+            await window.tryCloudSignIn?.(); 
             cloudStatus.textContent = window.cloudCanWrite ? 'Online' : 'Offline';
           };
         }el('#startAuto').onclick=()=>{
