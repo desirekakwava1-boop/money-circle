@@ -363,7 +363,7 @@ function saveStore(s){
 
 /***** Default Model *****/
 const DEFAULT_CONTRIB_CENTS = 1_000_000; // R10,000
-const DEFAULT_MANAGER_PIN = '123456';
+const DEFAULT_MANAGER_PIN = '198520';
 function newStore(){
   return {
     meta:{ createdAt:new Date().toISOString(), currency:'ZAR', defaultContributionCents:DEFAULT_CONTRIB_CENTS, managerPin: DEFAULT_MANAGER_PIN,
@@ -377,7 +377,18 @@ function newStore(){
 }
 
 let Store = loadStore() || newStore();
+
+// One-time migration: if they were still using the old default, upgrade it
+const PREV_DEFAULT_PIN = '123456';           // the old default you want to replace
+if (Store?.meta) {
+  if (!Store.meta.managerPin) {
+    Store.meta.managerPin = DEFAULT_MANAGER_PIN;     // set if missing
+  } else if (Store.meta.managerPin === PREV_DEFAULT_PIN) {
+    Store.meta.managerPin = DEFAULT_MANAGER_PIN;     // bump old default -> new default
+  }
+}
 saveStore(Store);
+
 
 /***** Session helpers *****/
 function setSession(role, memberId=null){ Store.session={role, memberId}; saveStore(Store); renderAll() }
