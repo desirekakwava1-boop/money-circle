@@ -536,45 +536,54 @@ function renderNav(){ const nav=el('#nav'); nav.innerHTML='';
   const pIn=el('#managerPinInput'); const pT=el('#managerToggle'); const pS=el('#setManagerPin');
   pT.textContent = isManager()? 'Manager ON' : 'Manager OFF';
   pT.className = 'btn' + (isManager()? ' ok':'' );
+  
 pT.onclick = async () => {
-  // If already manager: turn OFF and clear the field
+  // If currently in manager mode, turn it OFF and jump to Overview.
   if (isManager()) {
-    setSession(null);
-    pIn.value = '';
-    pIn.blur();
+    currentTab = 'overview';     // land on Overview after re-render
+    setSession(null);            // exits manager mode (also re-renders)
+    flash('Manager logged out');
+
+    // Clear PIN box so it doesn't linger
+    const pIn = el('#managerPinInput');
+    if (pIn) pIn.value = '';
     return;
   }
 
-  if (pIn.value === Store.meta.managerPin) { 
-    setSession('manager'); 
-    flash('Manager logged in');
+  // Otherwise, trying to turn manager mode ON
+  const pinOk = (el('#managerPinInput')?.value || '') === Store.meta.managerPin;
+  if (!pinOk) {
+    flash('Incorrect PIN');
+    return;
+  }
 
-     pIn.value = '';
-    pIn.blur();
+  setSession('manager');
+  flash('Manager logged in');
 
-    // Ask once for Firebase manager email/password to enable cloud writes
-    if (!window.cloudCanWrite && window.__fb?.auth) {
+  // Clear the PIN right after successful login
+  const pIn = el('#managerPinInput');
+  if (pIn) pIn.value = '';
+
+  // === keep your existing optional cloud sign-in flow here ===
+  // (leave as-is if you already have it)
+  if (!window.cloudCanWrite && window.__fb?.auth) {
+    try {
       const email = prompt("Manager cloud email (for writes)");
       const pass  = prompt("Manager cloud password");
       if (email && pass) {
-        const { signInWithEmailAndPassword } = await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
-        try {
-          await signInWithEmailAndPassword(window.__fb.auth, email, pass);
-          window.cloudCanWrite = true;
-          flash("Cloud: manager signed in");
-        } catch (e) {
-          alert("Cloud sign-in failed. Viewing only.");
-        }
+        const { signInWithEmailAndPassword } =
+          await import("https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js");
+        await signInWithEmailAndPassword(window.__fb.auth, email, pass);
+        window.cloudCanWrite = true;
+        flash("Cloud: manager signed in");
+        if (window.cloud?.save && window.Store) window.cloud.save(window.Store);
       }
+    } catch (e) {
+      alert("Cloud sign-in failed. Viewing only.");
     }
-
-  }  else {
-    // Wrong PIN → clear and focus for quick retry
-    flash('Incorrect PIN');
-    pIn.value = '';
-    pIn.focus();
   }
 };
+
 
 
   pS.onclick=()=>{ if(!isManager()) return alert('Login as manager first');
