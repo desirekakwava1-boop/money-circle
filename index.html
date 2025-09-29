@@ -151,7 +151,7 @@ nav button{ scroll-snap-align:start; }
     </div>
     <nav id="nav" class="row grow"></nav>
     <div class="row">
-      <input id="managerPinInput" type="password" placeholder="Manager PIN" style="width:140px">
+      <input id="managerPinInput" type="password" placeholder="Manager PIN" style="width:140px" autocomplete="off">
       <button class="btn" id="managerToggle">Manager OFF</button>
       <button class="btn" id="setManagerPin" title="Change PIN">Set</button>
     </div>
@@ -300,6 +300,7 @@ nav button{ scroll-snap-align:start; }
       <div class="card">
         <h3 style="margin:0 0 8px;font-weight:600">Export</h3>
         <div class="small">Download all data as JSON. Keep it safe.</div>
+        <button class="btn" id="printLogsBtn" style="margin-top:10px">PDF-Logs</button>
         <button class="btn primary" id="exportBtn" style="margin-top:10px">Download Backup</button>
       </div>
       <div class="card">
@@ -383,6 +384,133 @@ function setSession(role, memberId=null){ Store.session={role, memberId}; saveSt
 function isManager(){ return Store.session.role==='manager' }
 function isMember(){ return Store.session.role==='member' }
 
+function markAllOpenLoansPaid(){
+  const open = Store.loans.filter(l => l.status === 'open');
+  if (!open.length) { flash('No open loans'); return; }
+  const today = todayISO();
+  Store.loans = Store.loans.map(l =>
+    l.status === 'open' ? { ...l, status: 'paid', paidBackAt: today } : l
+  );
+  saveStore(Store);
+  flash(`Closed ${open.length} open loan(s). Outstanding → 0`);
+  renderOverview(); renderPayouts(); renderProfile();
+}
+
+function clearAllLoansConfirm(){
+  if (!isManager()) return alert('Manager login required');
+  const total = Store.loans.length;
+  if (!total) return flash('No loan history to clear');
+
+  const ok = confirm(
+    `Reset Loan History?\n\n` +
+    `This will delete ALL payouts/loans (${total}).\n` +
+    `• "Total Loaned Out" will go to 0\n` +
+    `• "Outstanding" will go to 0\n` +
+    `• Members & contributions stay intact\n\n` +
+    `Proceed?`
+  );
+  if (!ok) return;
+
+  Store.loans = [];
+  saveStore(Store);
+  flash('Loan history cleared');
+  renderOverview(); renderPayouts(); renderProfile();
+}
+
+
+function softResetRound(){
+  // Only resets the rotation; keeps all history and members
+  Store.rounds.cycle += 1;
+  Store.rounds.servedIds = [];
+  saveStore(Store);
+  flash('New round started (history kept)');
+  renderOverview(); renderPayouts(); renderContribs(); renderProfile();
+}
+
+function addLoanResetUI(){
+  const mc = el('#managerControls');
+  if (!mc || !isManager()) return;
+
+  // avoid duplicates on re-render
+  if (mc.querySelector('#zeroOutstandingBtn')) return;
+
+  // try to place alongside your existing action row; otherwise create one
+  let row = mc.querySelector(".row[style*='margin-top']") || mc.querySelector('.row:last-of-type');
+  if (!row) {
+    row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginTop = '8px';
+    mc.appendChild(row);
+  }
+
+  // Button 1: set Outstanding → 0 by marking all open loans as paid
+  const zeroBtn = document.createElement('button');
+  zeroBtn.className = 'btn';
+  zeroBtn.id = 'zeroOutstandingBtn';
+  zeroBtn.textContent = '✓ Mark All Paid (Outstanding → 0)';
+  zeroBtn.onclick = () => {
+    if (!isManager()) return alert('Manager login required');
+    const ok = confirm('Mark ALL open payouts as PAID now? Outstanding will become 0.');
+    if (ok) markAllOpenLoansPaid();
+  };
+  row.appendChild(zeroBtn);
+
+  // Button 2: wipe the entire loan history (Total Loaned Out → 0)
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'btn danger';
+  clearBtn.id = 'clearLoanHistoryBtn';
+  clearBtn.textContent = '🗑 Reset Loan History (Total Loaned Out → 0)';
+  clearBtn.onclick = clearAllLoansConfirm;
+  row.appendChild(clearBtn);
+}
+
+
+function addResetUI(){
+  const mc = el('#managerControls');
+  if (!mc || !isManager()) return;
+
+  // avoid duplicates
+  if (mc.querySelector('#resetRoundBtn')) return;
+
+  // try to place it on the same row as your action buttons
+  let row = mc.querySelector(".row[style*='margin-top']") || mc.querySelector('.row:last-of-type');
+  if (!row) {
+    // fallback: create a row at the bottom
+    row = document.createElement('div');
+    row.className = 'row';
+    row.style.marginTop = '8px';
+    mc.appendChild(row);
+  }
+
+  const btn = document.createElement('button');
+  btn.className = 'btn';
+  btn.id = 'resetRoundBtn';
+  btn.textContent = '♻ Start New Round';
+
+  // insert before a Stop button if present, else append
+  const stop = mc.querySelector('#stopAuto');
+  if (stop && stop.parentElement === row) {
+    row.insertBefore(btn, stop);
+  } else {
+    row.appendChild(btn);
+  }
+  btn.onclick = openResetRoundModal;
+}
+
+
+function openResetRoundModal(){
+  if (!isManager()) return alert('Manager login required');
+  const total  = Store.members.filter(m=>m.active!==false).length;
+  const served = Store.rounds.servedIds.length;
+  const ok = confirm(
+    `Start a new round?\n\nCurrent round: ${Store.rounds.cycle}\nServed: ${served}/${total}\n\n` +
+    `This keeps all payouts & contributions but clears the rotation so everyone is eligible again.`
+  );
+  if (ok) softResetRound();
+}
+
+
+
 /***** Notice *****/
 let noticeTimer=null; function flash(msg){ const n=el('#notice'); n.textContent=msg; show(n,true); clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>show(n,false),2200) }
 
@@ -397,15 +525,21 @@ function renderNav(){ const nav=el('#nav'); nav.innerHTML='';
   const pIn=el('#managerPinInput'); const pT=el('#managerToggle'); const pS=el('#setManagerPin');
   pT.textContent = isManager()? 'Manager ON' : 'Manager OFF';
   pT.className = 'btn' + (isManager()? ' ok':'' );
-pT.onclick = async () => { 
-  if (isManager()) { 
-    setSession(null); 
-    return; 
+pT.onclick = async () => {
+  // If already manager: turn OFF and clear the field
+  if (isManager()) {
+    setSession(null);
+    pIn.value = '';
+    pIn.blur();
+    return;
   }
 
   if (pIn.value === Store.meta.managerPin) { 
     setSession('manager'); 
     flash('Manager logged in');
+
+     pIn.value = '';
+    pIn.blur();
 
     // Ask once for Firebase manager email/password to enable cloud writes
     if (!window.cloudCanWrite && window.__fb?.auth) {
@@ -423,8 +557,11 @@ pT.onclick = async () => {
       }
     }
 
-  } else {
+  }  else {
+    // Wrong PIN → clear and focus for quick retry
     flash('Incorrect PIN');
+    pIn.value = '';
+    pIn.focus();
   }
 };
 
@@ -478,8 +615,10 @@ function renderOverview(){
         </div>
         <div class='row' style='margin-top:8px'>
           <button class='btn' id='runNow'>▶ Run this month now</button>
+          <button class='btn' id='resetRoundBtn'>♻ Start New Round</button>
           <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
-        </div>`;
+        </div>
+        `;
       el('#runNow').onclick = () => {
         const d=todayISO(); const amt=ap.amountCents||Store.meta.defaultContributionCents;
         createPayoutBatch(d, ap.recipientsPerMonth||1, amt);
@@ -568,6 +707,9 @@ function renderOverview(){
       </div>`));
     });
   }
+
+  addResetUI();
+  addLoanResetUI();
 }
 
 
@@ -620,7 +762,7 @@ function openAddMember(){
   const card=el('#modalCard');
   card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>Add Member</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
   <div class='grid grid-2'>
-    <label><div class='small muted'>Full name</div><input id='mName' placeholder='e.g., Nomsa Dlamini'></label>
+    <label><div class='small muted'>Full name</div><input id='mName' placeholder='e.g., Desire Kakwava'></label>
     <label><div class='small muted'>Age</div><input id='mAge' type='number' min='10' max='120' placeholder='29'></label>
     <label class='row'><img id='mPrev' class='img-s' src='${avatarFromName('N')}'><div><div class='small muted'>Profile picture</div><input id='mPhoto' type='file' accept='image/*'></div></label>
     <label><div class='small muted'>Unique login password</div><div class='row'><input id='mPw'><button class='btn' id='regen' style='padding:8px 10px'>Regenerate</button><button class='btn' id='copyPw' style='padding:8px 10px'>Copy</button></div></label>
@@ -663,6 +805,31 @@ function pickRandom(ids, k){
   return arr.slice(0,n);
 }
 
+// Assign remaining active members to each recipient (random, round-robin)
+function assignGivers(recipientIds){
+  const activeIds = Store.members.filter(m => m.active !== false).map(m => m.id);
+  const giverPool = activeIds.filter(id => !recipientIds.includes(id));
+
+  // shuffle the givers
+  const shuffled = [...giverPool];
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+
+  // round-robin distribute givers to recipients
+  const map = Object.fromEntries(recipientIds.map(id => [id, []]));
+  let i = 0;
+  for (const gid of shuffled) {
+    const rid = recipientIds[i % recipientIds.length];
+    map[rid].push(gid);
+    i++;
+  }
+  return map; // { recipientId: [giverId, ...] }
+}
+
+
+
 /*===== Auto-Play (Monthly Rotation) =====*/
 function daysInMonth(y,m){ return new Date(y, m+1, 0).getDate() }
 function monthDate(y,m,d){ return new Date(y, m, Math.min(d, daysInMonth(y,m))) }
@@ -679,22 +846,46 @@ function computeNextRunDate(){
                              : monthDate(start.getFullYear(), start.getMonth(), day);
   return todayISO(next);
 }
-function createPayoutBatch(dateStr,k,amountCents){
-  let eligible=getEligibleIds();
-  if(eligible.length===0){
-    const activeIds=Store.members.filter(m=>m.active!==false).map(m=>m.id);
-    if(activeIds.length===0) return;
-    Store.rounds.cycle+=1; Store.rounds.servedIds=[]; eligible=getEligibleIds();
+function createPayoutBatch(dateStr, k, amountCents){
+  // get eligible recipients (fair rotation)
+  let eligible = getEligibleIds();
+  if (eligible.length === 0) {
+    const activeIds = Store.members.filter(m => m.active !== false).map(m => m.id);
+    if (activeIds.length === 0) return; // no members
+    // start a new round
+    Store.rounds.cycle += 1;
+    Store.rounds.servedIds = [];
+    eligible = getEligibleIds();
   }
-  const chosen=pickRandom(eligible, k); if(chosen.length===0) return;
-  const runDate=new Date(dateStr);
-  const due=addMonthsDate(runDate,1, runDate.getDate()); const dueStr=todayISO(due);
-  const fromIds=Store.members.map(m=>m.id);
-  const loans=chosen.map(rid=>({id:uid(), recipientId:rid, amountCents, date:dateStr, dueDate:dueStr,
-                                fromMembers: fromIds.filter(id=>id!==rid), status:'open'}));
-  Store.loans=[...loans, ...Store.loans];
-  Store.rounds.servedIds=Array.from(new Set([...Store.rounds.servedIds, ...chosen]));
+
+  const chosen = pickRandom(eligible, k);
+  if (chosen.length === 0) return;
+
+  // due date = +1 month, same day (clamped)
+  const runDate = new Date(dateStr);
+  const due     = addMonthsDate(runDate, 1, runDate.getDate());
+  const dueStr  = todayISO(due);
+
+  // NEW: assign who gives to whom (remaining actives only)
+  const giverMap = assignGivers(chosen);
+
+  const loans = chosen.map(rid => ({
+    id: uid(),
+    recipientId: rid,
+    amountCents,
+    date: dateStr,
+    dueDate: dueStr,
+    fromMembers: giverMap[rid] || [],   // only these members give to this recipient
+    status: 'open'
+  }));
+
+  // persist rotation + loans
+  Store.rounds.servedIds = Array.from(new Set([...Store.rounds.servedIds, ...chosen]));
+  Store.loans = [...loans, ...Store.loans];
+  saveStore(Store);
 }
+
+
 function autoPlayTick(){
   const ap=Store.meta.autoPlay; if(!ap?.enabled || !Store.members.length) return;
   if(!ap.startedAt) ap.startedAt = todayISO();
@@ -779,24 +970,49 @@ function openRandomSelect(){
   el('#previewBtn').onclick=renderPreview;
   const initial=renderPreview();
 
-  el('#create').onclick=()=>{
-    const k = Math.max(1, Math.min(parseInt(el('#pickK').value)||1, getEligibleIds().length||1));
-    const chosenIds = pickRandom(getEligibleIds(), k);
-    const amountCents = Math.max(0, Math.round(parseFloat(el('#pAmt').value||'0')*100));
-    const date = el('#pDate').value || todayISO();
-    const dueDate = el('#pDue').value || todayISO();
-    if(chosenIds.length===0){ // force new round then pick again
-      const activeIds = Store.members.filter(m=>m.active!==false).map(m=>m.id);
-      if(activeIds.length===0) return alert('No active members');
-      Store.rounds.cycle += 1; Store.rounds.servedIds = [];
-    }
-    const fromIds = Store.members.map(m=>m.id);
-    const payloads = chosenIds.map(rid=> ({ id:uid(), recipientId: rid, amountCents, date, dueDate, fromMembers: fromIds.filter(id=>id!==rid), status:'open' }));
-    // Update rotation state
-    Store.rounds.servedIds = Array.from(new Set([...Store.rounds.servedIds, ...chosenIds]));
-    saveStore(Store);
-    Store.loans=[...payloads, ...Store.loans]; saveStore(Store); show(el('#modal'), false); flash('Payout(s) created'); renderPayouts(); renderOverview(); renderProfile();
-  };
+el('#create').onclick = () => {
+  const k = Math.max(1, Math.min(parseInt(el('#pickK').value)||1, getEligibleIds().length||1));
+  let chosenIds = pickRandom(getEligibleIds(), k);
+
+  const amountCents = Math.max(0, Math.round(parseFloat(el('#pAmt').value||'0')*100));
+  const date = el('#pDate').value || todayISO();
+  const dueDate = el('#pDue').value || todayISO();
+
+  // if none eligible, start a new round and try again
+  if (chosenIds.length === 0) {
+    const activeIds = Store.members.filter(m => m.active !== false).map(m => m.id);
+    if (activeIds.length === 0) return alert('No active members');
+    Store.rounds.cycle += 1; Store.rounds.servedIds = [];
+    chosenIds = pickRandom(getEligibleIds(), k);
+  }
+  if (chosenIds.length === 0) return alert('Still no eligible members');
+
+  // NEW: assign who gives to whom
+  const giverMap = assignGivers(chosenIds);
+
+  const payloads = chosenIds.map(rid => ({
+    id: uid(),
+    recipientId: rid,
+    amountCents,
+    date,
+    dueDate,
+    fromMembers: giverMap[rid] || [],   // only these members give to this recipient
+    status: 'open'
+  }));
+
+  // update rotation + persist
+  Store.rounds.servedIds = Array.from(new Set([...Store.rounds.servedIds, ...chosenIds]));
+  Store.loans = [...payloads, ...Store.loans];
+  saveStore(Store);
+
+  show(el('#modal'), false);
+  flash('Payout(s) created');
+  renderPayouts(); renderOverview(); renderProfile();
+};
+
+
+
+
 }
 
 /***** Contributions *****/
@@ -881,6 +1097,98 @@ function openSignup(){
   };
 }
 
+function printLogs(){
+  const fmtZAR = cents => ZAR.format((cents||0)/100);
+  const members = Object.fromEntries(Store.members.map(m=>[m.id, m]));
+  const byDateAsc = (a,b)=> new Date(a.date) - new Date(b.date);
+
+  const contribs = [...Store.contributions].sort(byDateAsc);
+  const loans    = [...Store.loans].sort(byDateAsc);
+
+  const totalContrib    = contribs.reduce((a,c)=>a+(c.amountCents||0),0);
+  const totalLoaned     = loans.reduce((a,l)=>a+(l.amountCents||0),0);
+  const totalOutstanding= loans.filter(l=>l.status==='open').reduce((a,l)=>a+(l.amountCents||0),0);
+
+  const rowsContrib = contribs.map(c =>
+    `<tr>
+      <td>${c.date}</td>
+      <td>${escapeHtml(members[c.memberId]?.fullName || '—')}</td>
+      <td>${fmtZAR(c.amountCents)}</td>
+      <td>${escapeHtml(c.note || '')}</td>
+    </tr>`
+  ).join('');
+
+  const rowsLoans = loans.map(l => {
+    const rec = members[l.recipientId];
+    const status = l.status==='open' ? 'Open' : `Paid ${l.paidBackAt||''}`;
+    const fromNames = (l.fromMembers||[])
+      .map(id=> members[id]?.fullName)
+      .filter(Boolean).join(', ');
+    return `<tr>
+      <td>${l.date}</td>
+      <td>${escapeHtml(rec?.fullName || '—')}</td>
+      <td>${fmtZAR(l.amountCents)}</td>
+      <td>${l.dueDate}</td>
+      <td>${escapeHtml(status)}</td>
+      <td class="small">${escapeHtml(fromNames || '—')}</td>
+    </tr>`;
+  }).join('');
+
+  const today = new Date().toLocaleString();
+
+  const html = `<!doctype html><html><head><meta charset="utf-8">
+  <title>Money Circle — Logs</title>
+  <style>
+    @page { size: A4; margin: 16mm; }
+    body { font: 12px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif; color:#111; }
+    h1 { font-size: 20px; margin: 0 0 2mm; }
+    h2 { font-size: 14px; margin: 8mm 0 2mm; }
+    .muted{ color:#555 }
+    .small{ font-size:11px }
+    .kpis{ display:flex; gap:12px; margin: 4mm 0; flex-wrap: wrap; }
+    .kpi{ padding:8px 10px; border:1px solid #ddd; border-radius:8px; }
+    table{ width:100%; border-collapse:collapse; page-break-inside:auto }
+    thead{ display:table-header-group }
+    th,td{ border:1px solid #ddd; padding:6px 8px; text-align:left; vertical-align:top }
+    th{ background:#f3f4f6 }
+    .footer{ margin-top:8mm; color:#666; font-size:10px }
+    .noprint{ text-align:right; margin-bottom:6mm }
+    @media print { .noprint{ display:none } }
+  </style>
+  </head><body>
+    <div class="noprint"><button onclick="print()">Print / Save as PDF</button></div>
+    <h1>Money Circle — Logs</h1>
+    <div class="small muted">Generated ${today}</div>
+
+    <div class="kpis">
+      <div class="kpi"><div class="small muted">Active Members</div><div>${Store.members.filter(m=>m.active!==false).length}</div></div>
+      <div class="kpi"><div class="small muted">Total Contributions</div><div>${fmtZAR(totalContrib)}</div></div>
+      <div class="kpi"><div class="small muted">Total Loaned Out</div><div>${fmtZAR(totalLoaned)}</div></div>
+      <div class="kpi"><div class="small muted">Outstanding</div><div>${fmtZAR(totalOutstanding)}</div></div>
+    </div>
+
+    <h2>Contributions</h2>
+    <table>
+      <thead><tr><th>Date</th><th>Member</th><th>Amount (ZAR)</th><th>Note</th></tr></thead>
+      <tbody>${rowsContrib || '<tr><td colspan="4" class="muted">No contributions recorded.</td></tr>'}</tbody>
+    </table>
+
+    <h2>Payouts / Loans</h2>
+    <table>
+      <thead><tr><th>Received</th><th>Recipient</th><th>Amount (ZAR)</th><th>Due</th><th>Status</th><th class="small">From Members</th></tr></thead>
+      <tbody>${rowsLoans || '<tr><td colspan="6" class="muted">No payouts recorded.</td></tr>'}</tbody>
+    </table>
+
+    <div class="footer">Source: local key “money-circle-vanilla-v2”.</div>
+  </body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) return alert('Popup blocked. Allow popups for this site.');
+  w.document.open(); w.document.write(html); w.document.close();
+  w.onload = () => w.print();
+}
+
+
 /***** Backup & Settings *****/
 function renderSettings(){
   el('#defAmount').value = (Store.meta.defaultContributionCents/100).toFixed(2);
@@ -889,6 +1197,9 @@ function renderSettings(){
   el('#saveSettings').onclick=()=>{ if(!isManager()) return alert('Manager login required'); const cents = Math.max(0, Math.round(parseFloat(el('#defAmount').value||'0')*100)); Store.meta.defaultContributionCents=cents; Store.meta.managerPin=el('#managerEdit').value||Store.meta.managerPin; saveStore(Store); flash('Settings saved'); renderSettings() };
   el('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(Store,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`money-circle-backup-${todayISO()}.json`; a.click() };
   el('#importInput').onchange=async e=>{ const f=e.target.files?.[0]; if(!f) return; try{ const obj=JSON.parse(await f.text()); if(!obj.members||!obj.loans||!obj.contributions) throw new Error('Invalid file'); Store=obj; saveStore(Store); flash('Backup restored'); renderAll() } catch(err){ alert('Import failed: '+err.message) } };
+const pdfBtn = el('#printLogsBtn');
+if (pdfBtn) pdfBtn.onclick = printLogs;
+
 }
 
 /***** Initial boot *****/
