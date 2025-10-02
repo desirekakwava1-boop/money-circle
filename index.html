@@ -1,4 +1,4 @@
-<!doctype html>
+ok lets check again our code <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -435,8 +435,6 @@ function saveStore(s){
 }
 
 
-
-
 /***** Default Model *****/
 const DEFAULT_CONTRIB_CENTS = 1_000_000; // R10,000
 const DEFAULT_MANAGER_PIN = '198520';
@@ -444,6 +442,7 @@ function newStore(){
   return {
     meta:{ createdAt:new Date().toISOString(), currency:'ZAR', defaultContributionCents:DEFAULT_CONTRIB_CENTS, managerPin: DEFAULT_MANAGER_PIN,
     groups: { locked:false, k:1, map:{} }, // map: memberId -> groupIndex
+    autoPlay:{ enabled:false, startedAt:null, day:1, recipientsPerMonth:1, amountCents: DEFAULT_CONTRIB_CENTS, lastRunDate:null },
     autoPlay:{ enabled:false, startedAt:null, day:1, recipientsPerMonth:1, amountCents: DEFAULT_CONTRIB_CENTS, lastRunDate:null } },
     members:[], // {id, fullName, age, password, photoDataUrl, joinedAt, active}
     contributions:[], // {id, memberId, amountCents, date, note}
@@ -455,14 +454,6 @@ function newStore(){
 }
 
 let Store = loadStore() || newStore();
-
-// Let the module replace the in-memory Store safely
-window.replaceStore = function(next){
-  Store = next;
-  saveStore(Store);   // already writes localStorage + optional cloud.save
-  renderAll();
-};
-
 
 // One-time migration: if they were still using the old default, upgrade it
 // One-time migration: if they were still using the old default, upgrade it
@@ -1151,6 +1142,8 @@ function renderMembers(){
       Store.members=Store.members.filter(x=>x.id!==m.id);
       Store.rounds.servedIds = Store.rounds.servedIds.filter(id=>id!==m.id);
       saveStore(Store); 
+
+      saveStore(Store);
 // 👇 Audit
       log('member_remove', { id: m.id, name: m.fullName });
 
@@ -1579,6 +1572,7 @@ function openRandomSelect(){
   card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>🎲 Random Select & Lend</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
   <div class='grid grid-2'>
     <div class='grid'>
+      // label text in the modal HTML:
       <label><div class='small muted'>Groups / recipients to pick (per round)</div>
       <input id='pickK' type='number' min='1' max='${Math.max(eligible.length,1)}' value='1'></label>
       <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='pAmt' type='number' min='0' step='0.01' value='${defAmt}'></label>
@@ -1818,52 +1812,9 @@ function printLogs(){
   
 }
 
-function downloadCSV(filename, headers, rows){
-  const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
-  const head = headers.map(esc).join(',');
-  const body = rows.map(r => headers.map(h => esc(r[h])).join(',')).join('\n');
-  const blob = new Blob([head + '\n' + body], { type:'text/csv;charset=utf-8;' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function buildContribCSV(){
-  const members = Object.fromEntries(Store.members.map(m => [m.id, m.fullName]));
-  const rows = Store.contributions
-    .slice().sort((a,b)=> new Date(a.date)-new Date(b.date))
-    .map(c => ({
-      date: c.date,
-      member: members[c.memberId] || '—',
-      amount: (c.amountCents||0)/100,
-      note: c.note || ''
-    }));
-  downloadCSV(`contributions-${todayISO()}.csv`, ['date','member','amount','note'], rows);
-}
-
-function buildPayoutsCSV(){
-  const members = Object.fromEntries(Store.members.map(m => [m.id, m.fullName]));
-  const rows = Store.loans
-    .slice().sort((a,b)=> new Date(a.date)-new Date(b.date))
-    .map(l => ({
-      date: l.date,
-      recipient: members[l.recipientId] || '—',
-      total_amount: (l.amountCents||0)/100,
-      per_donor: (l.perDonorCents||0)/100,
-      donors_count: (l.fromMembers||[]).length,
-      donors_list: (l.fromMembers||[]).map(id => members[id]).filter(Boolean).join('; '),
-      due: l.dueDate,
-      status: l.status,
-      paid_at: l.paidBackAt || ''
-    }));
-  downloadCSV(
-    `payouts-${todayISO()}.csv`,
-    ['date','recipient','total_amount','per_donor','donors_count','donors_list','due','status','paid_at'],
-    rows
-  );
-}
+window.downloadCSV = function(filename, headers, rows) { /* ...same body... */ };
+window.buildContribCSV = function() { /* ...same body... */ };
+window.buildPayoutsCSV = function() { /* ...same body... */ };
 
 
 /***** Backup & Settings *****/
@@ -1964,6 +1915,49 @@ renderAll();
       console.warn("Cloud save failed:", e);
     }
   }
+
+  function downloadCSV(filename, headers, rows){
+  const esc = v => `"${String(v??'').replace(/"/g,'""')}"`;
+  const head = headers.map(esc).join(',');
+  const body = rows.map(r => headers.map(h => esc(r[h])).join(',')).join('\n');
+  const blob = new Blob([head+'\n'+body], {type:'text/csv;charset=utf-8;'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function buildContribCSV(){
+  const members = Object.fromEntries(Store.members.map(m=>[m.id, m.fullName]));
+  const rows = Store.contributions
+    .slice().sort((a,b)=> new Date(a.date)-new Date(b.date))
+    .map(c => ({
+      date: c.date,
+      member: members[c.memberId] || '—',
+      amount: (c.amountCents||0)/100,
+      note: c.note||''
+    }));
+  downloadCSV(`contributions-${todayISO()}.csv`, ['date','member','amount','note'], rows);
+}
+
+function buildPayoutsCSV(){
+  const members = Object.fromEntries(Store.members.map(m=>[m.id, m.fullName]));
+  const rows = Store.loans
+    .slice().sort((a,b)=> new Date(a.date)-new Date(b.date))
+    .map(l => ({
+      date: l.date,
+      recipient: members[l.recipientId] || '—',
+      total_amount: (l.amountCents||0)/100,
+      per_donor: (l.perDonorCents||0)/100,
+      donors_count: (l.fromMembers||[]).length,
+      donors_list: (l.fromMembers||[]).map(id=>members[id]).filter(Boolean).join('; '),
+      due: l.dueDate,
+      status: l.status,
+      paid_at: l.paidBackAt || ''
+    }));
+  downloadCSV(`payouts-${todayISO()}.csv`,
+    ['date','recipient','total_amount','per_donor','donors_count','donors_list','due','status','paid_at'],
+    rows);
+}
+
 
   // ✅ “Remember me”: keep the email to prefill prompt (never store the password)
   const REMEMBER_EMAIL_KEY = "managerEmail";
