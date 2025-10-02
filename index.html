@@ -1932,28 +1932,29 @@ renderAll();
 
   window.cloudCanWrite = false;
 
- async function cloudLoadOnce() {
-  try {
-    const snap = await getDoc(docRef);
-    if (snap.exists() && snap.data()?.store) {
-      window.replaceStore?.(snap.data().store);
+  async function cloudLoadOnce() {
+    try {
+      const snap = await getDoc(docRef);
+      if (snap.exists() && snap.data()?.store) {
+        window.Store = snap.data().store;
+        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+        window.renderAll?.();
+      }
+    } catch (e) {
+      console.warn("Cloud load failed:", e);
     }
-  } catch (e) {
-    console.warn("Cloud load failed:", e);
   }
-}
 
-function cloudSubscribe() {
-  return onSnapshot(
-    docRef,
-    (snap) => {
+  function cloudSubscribe() {
+    onSnapshot(docRef, (snap) => {
       const data = snap.data();
-      if (data?.store) window.replaceStore?.(data.store);
-    },
-    (err) => console.warn("Cloud subscribe error:", err)
-  );
-}
-
+      if (data?.store) {
+        window.Store = data.store;
+        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
+        window.renderAll?.();
+      }
+    }, err => console.warn("Cloud subscribe error:", err));
+  }
 
   async function cloudSave(store) {
     if (!window.cloudCanWrite) return;           // writes only when manager is signed in
