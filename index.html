@@ -53,8 +53,21 @@
 .donor-chip{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid #334155; border-radius:999px; background:#0b0f14; font-size:12px }
 .donor-chip img{ width:20px; height:20px; border-radius:50%; object-fit:cover; border:1px solid #233042; background:#0b0f14 }
 
+/* Groups manager */
+.groupsWrap{ display:grid; gap:12px }
+@media (min-width: 900px){ .groupsWrap{ grid-template-columns: repeat(3,minmax(0,1fr)) } }
+.groupCol{ background:#0f1520; border:1px solid #1f2937; border-radius:16px; padding:12px; min-height:220px }
+.groupHeader{ display:flex; gap:8px; align-items:center; margin-bottom:8px }
+.groupHeader input{ flex:1; padding:8px 10px; border-radius:10px }
+.memberChip{ display:flex; align-items:center; gap:8px; padding:8px 10px; border:1px dashed #334155; border-radius:12px; margin:6px 0; background:#0b0f14 }
+.memberChip.dragging{ opacity:.6 }
+.groupCol.dragOver{ outline:2px dashed #3b82f6; outline-offset:4px }
  
+
 /* === Mobile-first fixes (add at the END of your <style>) === */
+
+.shareRow{ display:flex; gap:8px; flex-wrap:wrap; margin-top:8px }
+
 
 /* 1) Grids: default to 1 column on small screens */
 .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; }
@@ -187,6 +200,40 @@ nav button{ scroll-snap-align:start; }
     </div>
   </section>
 
+  <!-- AUDIT LOG -->
+<section id="view-audit" class="grid hidden">
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Audit Log</h3>
+      <div class="row">
+        <select id="auditFilter">
+          <option value="">All actions</option>
+          <option>member_add</option>
+          <option>member_remove</option>
+          <option>contrib_record</option>
+          <option>payout_create</option>
+          <option>payout_mark_paid</option>
+          <option>payout_delete</option>
+          <option>round_reset</option>
+          <option>autoplay_start</option>
+          <option>autoplay_stop</option>
+          <option>settings_update</option>
+        </select>
+        <button class="btn" id="auditCSV">Download CSV</button>
+      </div>
+    </div>
+  </div>
+  <div class="card">
+    <div class="overflow" style="max-height:60vh">
+      <table>
+        <thead><tr class="small muted"><th>Time</th><th>Actor</th><th>Action</th><th>Details</th></tr></thead>
+        <tbody id="auditRows"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+
   <!-- MEMBERS -->
   <section id="view-members" class="grid hidden">
     <div class="row">
@@ -308,6 +355,8 @@ nav button{ scroll-snap-align:start; }
         <div class="small">Download all data as JSON. Keep it safe.</div>
         <button class="btn" id="printLogsBtn" style="margin-top:10px">PDF-Logs</button>
         <button class="btn primary" id="exportBtn" style="margin-top:10px">Download Backup</button>
+        <button class="btn" id="csvContrib" style="margin-top:10px">Download Contributions CSV</button>
+        <button class="btn" id="csvPayouts" style="margin-top:10px">Download Payouts CSV</button>
       </div>
       <div class="card">
         <h3 style="margin:0 0 8px;font-weight:600">Import</h3>
@@ -330,6 +379,25 @@ nav button{ scroll-snap-align:start; }
       <div class="footer">Current manager PIN: <code id="managerDisplay" class="pill"></code></div>
     </div>
   </section>
+
+  <!-- GROUPS MANAGER (Manager only) -->
+<section id="view-groups" class="grid hidden">
+  <div class="card">
+    <h3 style="margin:0 0 8px;font-weight:600">Groups Manager</h3>
+    <div class="row" style="align-items:end">
+      <label><div class="small muted">Number of groups (K)</div>
+        <input id="groupsK" type="number" min="1" value="1" style="width:120px">
+      </label>
+      <button class="btn" id="groupsResize">Resize & Lock</button>
+      <button class="btn" id="groupsRebalance">Rebalance</button>
+      <button class="btn" id="groupsUnlock">Unlock</button>
+      <div class="pill" id="groupsState">—</div>
+      <div class="small muted">Drag members between groups. Titles are editable.</div>
+    </div>
+  </div>
+  <div id="groupsWrap" class="groupsWrap"></div>
+</section>
+
 </main>
 
 <!-- ===== Modals ===== -->
@@ -367,6 +435,8 @@ function saveStore(s){
 }
 
 
+
+
 /***** Default Model *****/
 const DEFAULT_CONTRIB_CENTS = 1_000_000; // R10,000
 const DEFAULT_MANAGER_PIN = '198520';
@@ -374,7 +444,6 @@ function newStore(){
   return {
     meta:{ createdAt:new Date().toISOString(), currency:'ZAR', defaultContributionCents:DEFAULT_CONTRIB_CENTS, managerPin: DEFAULT_MANAGER_PIN,
     groups: { locked:false, k:1, map:{} }, // map: memberId -> groupIndex
-    autoPlay:{ enabled:false, startedAt:null, day:1, recipientsPerMonth:1, amountCents: DEFAULT_CONTRIB_CENTS, lastRunDate:null },
     autoPlay:{ enabled:false, startedAt:null, day:1, recipientsPerMonth:1, amountCents: DEFAULT_CONTRIB_CENTS, lastRunDate:null } },
     members:[], // {id, fullName, age, password, photoDataUrl, joinedAt, active}
     contributions:[], // {id, memberId, amountCents, date, note}
@@ -387,16 +456,155 @@ function newStore(){
 
 let Store = loadStore() || newStore();
 
+// Let the module replace the in-memory Store safely
+window.replaceStore = function(next){
+  Store = next;
+  saveStore(Store);   // already writes localStorage + optional cloud.save
+  renderAll();
+};
+
+
 // One-time migration: if they were still using the old default, upgrade it
-const PREV_DEFAULT_PIN = '123456';           // the old default you want to replace
+// One-time migration: if they were still using the old default, upgrade it
+const PREV_DEFAULT_PIN = '123456';
 if (Store?.meta) {
   if (!Store.meta.managerPin) {
-    Store.meta.managerPin = DEFAULT_MANAGER_PIN;     // set if missing
+    Store.meta.managerPin = DEFAULT_MANAGER_PIN;
   } else if (Store.meta.managerPin === PREV_DEFAULT_PIN) {
-    Store.meta.managerPin = DEFAULT_MANAGER_PIN;     // bump old default -> new default
+    Store.meta.managerPin = DEFAULT_MANAGER_PIN;
+  }
+
+  // 🔧 NEW: ensure groups object + names
+  if (!Store.meta.groups) Store.meta.groups = { locked:false, k:1, map:{}, names:["Group 1"] };
+  if (!Array.isArray(Store.meta.groups.names) || Store.meta.groups.names.length !== (Store.meta.groups.k||1)) {
+    const k = Math.max(1, Store.meta.groups.k || 1);
+    Store.meta.groups.names = Array.from({length:k}, (_,i)=>`Group ${i+1}`);
   }
 }
+// 🔧 NEW: audit log
+if (!Array.isArray(Store.audit)) Store.audit = [];
+
 saveStore(Store);
+
+
+function getOverdueLoans(){
+  return Store.loans.filter(l => l.status==='open' && new Date(l.dueDate) < new Date());
+}
+
+function buildReminderText(l){
+  const m = Store.members.find(x=>x.id===l.recipientId);
+  const days = Math.abs(inDays(todayISO(), l.dueDate));
+  const total = ZAR.format((l.amountCents||0)/100);
+  return `Hi ${m?.fullName||'member'}, friendly reminder: your stokvel payout of ${total} received on ${l.date} was due on ${l.dueDate} and is now ${days} day(s) overdue. Please settle at your earliest convenience. Thank you.`;
+}
+
+function openRemindersModal(){
+  const list = getOverdueLoans();
+  const card = el('#modalCard');
+  card.innerHTML = `
+    <div class='row' style='justify-content:space-between'>
+      <h3 style='margin:0'>Overdue Reminders</h3>
+      <button class='btn' id='xClose' style='padding:4px 8px'>✕</button>
+    </div>
+    <div class='small muted'>${list.length ? list.length+' overdue payout(s).' : 'No overdue payouts.'}</div>
+    <div id='remList' class='grid' style='margin-top:8px'></div>
+    <div class='shareRow'>
+      <button class='btn' id='copyAll'>Copy All</button>
+      <button class='btn' id='downloadTxt'>Download .txt</button>
+    </div>
+  `;
+  show(el('#modal'), true);
+  el('#xClose').onclick = ()=> show(el('#modal'), false);
+
+  const wrap = el('#remList'); wrap.innerHTML = '';
+  list.forEach(l=>{
+    const m = Store.members.find(x=>x.id===l.recipientId);
+    const text = buildReminderText(l);
+    const item = document.createElement('div');
+    item.className = 'card';
+    item.innerHTML = `
+      <div class='row'>
+        <img class='img-s' src='${m?.photoDataUrl || avatarFromName(m?.fullName||"?")}' style='width:40px;height:40px'>
+        <div class='grow'>
+          <div style='font-weight:600'>${escapeHtml(m?.fullName||'—')}</div>
+          <div class='small muted'>Due ${l.dueDate} · Total ${ZAR.format((l.amountCents||0)/100)}</div>
+        </div>
+        <input placeholder='Phone (optional, 27XXXXXXXXX)' data-phone style='width:160px'>
+      </div>
+      <textarea class='small' data-msg rows='3' style='width:100%;margin-top:6px'>${escapeHtml(text)}</textarea>
+      <div class='shareRow'>
+        <button class='btn' data-copy>Copy</button>
+        <a class='btn' data-wa target='_blank'>WhatsApp</a>
+      </div>
+    `;
+    const waBtn = item.querySelector('[data-wa]');
+    const phoneEl = item.querySelector('[data-phone]');
+    const msgEl = item.querySelector('[data-msg]');
+    const copyBtn = item.querySelector('[data-copy]');
+
+    function refreshWA(){
+      const num = (phoneEl.value||'').replace(/\D/g,'');
+      const base = num ? `https://wa.me/${num}?text=` : `https://wa.me/?text=`;
+      waBtn.href = base + encodeURIComponent(msgEl.value);
+    }
+    phoneEl.addEventListener('input', refreshWA);
+    msgEl.addEventListener('input', refreshWA);
+    refreshWA();
+
+    copyBtn.onclick = ()=> navigator.clipboard?.writeText(msgEl.value).then(()=>flash('Copied')).catch(()=>{});
+    wrap.appendChild(item);
+  });
+
+  el('#copyAll').onclick = ()=>{
+    const all = Array.from(wrap.querySelectorAll('[data-msg]')).map(t=>t.value).join('\n\n---\n\n');
+    navigator.clipboard?.writeText(all).then(()=>flash('All copied')).catch(()=>{});
+  };
+  el('#downloadTxt').onclick = ()=>{
+    const all = Array.from(wrap.querySelectorAll('[data-msg]')).map(t=>t.value).join('\n\n---\n\n');
+    const blob = new Blob([all], {type:'text/plain'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `overdue-reminders-${todayISO()}.txt`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+}
+
+// Add a button to Manager Controls without touching your big template strings
+function addReminderUI(){
+  const mc = el('#managerControls'); if (!mc || !isManager()) return;
+  if (mc.querySelector('#overdueBtn')) return;
+  let row = mc.querySelector(".row[style*='margin-top']") || mc.querySelector('.row:last-of-type');
+  if (!row) { row = document.createElement('div'); row.className = 'row'; row.style.marginTop='8px'; mc.appendChild(row); }
+  const btn = document.createElement('button');
+  btn.id='overdueBtn'; btn.className='btn'; btn.textContent='📣 Overdue Reminders';
+  btn.onclick = openRemindersModal;
+  row.appendChild(btn);
+}
+
+function log(action, meta={}){
+  const entry = { id: uid(), ts: new Date().toISOString(), actor: isManager() ? 'manager' : (isMember() ? 'member' : 'system'), action, meta };
+  Store.audit = [entry, ...(Store.audit||[])].slice(0, 5000); // cap
+  saveStore(Store);
+}
+
+function renderAudit(){
+  const tbody = el('#auditRows'); if(!tbody) return;
+  const filt = el('#auditFilter')?.value || '';
+  const items = (Store.audit||[]).filter(a => !filt || a.action === filt);
+  tbody.innerHTML = '';
+  items.forEach(a=>{
+    const metaStr = JSON.stringify(a.meta||{}, null, 0);
+    tbody.insertAdjacentHTML('beforeend', `
+      <tr><td class="small">${a.ts.replace('T',' ').slice(0,19)}</td><td>${a.actor}</td><td>${a.action}</td><td class="small">${escapeHtml(metaStr)}</td></tr>
+    `);
+  });
+  el('#auditFilter')?.addEventListener('change', renderAudit);
+  el('#auditCSV')?.addEventListener('click', ()=>{
+    const rows = (Store.audit||[]).map(a=>({ts:a.ts, actor:a.actor, action:a.action, meta: JSON.stringify(a.meta||{})}));
+    downloadCSV(`audit-${todayISO()}.csv`, ['ts','actor','action','meta'], rows);
+  });
+}
 
 
 /***** Session helpers *****/
@@ -415,6 +623,8 @@ function markAllOpenLoansPaid(){
   flash(`Closed ${open.length} open loan(s). Outstanding → 0`);
   renderOverview(); renderPayouts(); renderProfile();
 }
+
+
 
 function clearAllLoansConfirm(){
   if (!isManager()) return alert('Manager login required');
@@ -443,6 +653,7 @@ function softResetRound(){
   Store.rounds.cycle += 1;
   Store.rounds.servedIds = [];
   saveStore(Store);
+  log('round_reset', { cycle: Store.rounds.cycle });
   flash('New round started (history kept)');
   renderOverview(); renderPayouts(); renderContribs(); renderProfile();
 }
@@ -535,7 +746,17 @@ function openResetRoundModal(){
 let noticeTimer=null; function flash(msg){ const n=el('#notice'); n.textContent=msg; show(n,true); clearTimeout(noticeTimer); noticeTimer=setTimeout(()=>show(n,false),2200) }
 
 /***** Nav + header *****/
-const TABS=[['overview','Overview'],['members','Members'],['payouts','Payouts'],['contribs','Contributions'],['profile','Login / Profile'],['backup','Backup']];
+const TABS = [
+  ['overview','Overview'],
+  ['groups','Groups'],         
+  ['members','Members'],
+  ['payouts','Payouts'],
+  ['contribs','Contributions'],
+  ['profile','Login / Profile'],
+  ['backup','Backup'],
+  ['audit','Audit']            
+];
+
 function renderNav(){ const nav=el('#nav'); nav.innerHTML='';
   const baseTabs = isManager()? TABS : [['overview','Overview'],['profile','Login / Profile']];
   baseTabs.forEach(([key,label])=>{
@@ -605,7 +826,18 @@ pT.onclick = async () => {
 
 /***** Tab switching *****/
 let currentTab='overview';
-function switchTab(tab){ currentTab=tab; renderNav(); ['overview','members','payouts','contribs','profile','backup'].forEach(t=>show(el('#view-'+t), t===tab)); if(tab==='overview') renderOverview(); if(tab==='members') renderMembers(); if(tab==='payouts') renderPayouts(); if(tab==='contribs') renderContribs(); if(tab==='profile') renderProfile(); if(tab==='backup') renderSettings(); }
+function switchTab(tab){ currentTab=tab; renderNav(); 
+  ['overview','groups','members','payouts','contribs','profile','backup','audit']
+  .forEach(t => show(el('#view-'+t), t === tab));
+  if(tab==='overview') renderOverview(); 
+  if(tab==='groups')   renderGroups();
+  if(tab==='members') renderMembers(); 
+  if(tab==='payouts') renderPayouts(); 
+  if(tab==='contribs') renderContribs(); 
+  if(tab==='profile') renderProfile(); 
+  if(tab==='backup') renderSettings();
+  if(tab==='audit')    renderAudit(); 
+ }
 
 function recipientCardHTML(l){
   const m = Store.members.find(x => x.id === l.recipientId);
@@ -758,7 +990,7 @@ function renderOverview(){
           <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
         </div>
         `;
-      el('#runNow').onclick = () => {
+    el('#runNow').onclick = () => {
   const d = todayISO();
   const k = ap.recipientsPerMonth || 1;
   const perDonor = ap.amountCents || Store.meta.defaultContributionCents;
@@ -768,11 +1000,20 @@ function renderOverview(){
 
   ap.lastRunDate = d;
   saveStore(Store);
+
+  log('payout_create', { mode:'autoplay_runNow', k, perDonorCents: perDonor, date: d }); // ← here
   flash('Auto-Play: run created');
   renderOverview(); renderPayouts(); renderProfile();
 };
 
-      el('#stopAuto').onclick = () => { ap.enabled=false; saveStore(Store); flash('Auto-Play stopped'); renderOverview(); };
+ el('#stopAuto').onclick = () => {
+  ap.enabled = false;
+  saveStore(Store);
+  log('autoplay_stop', {});
+  flash('Auto-Play stopped');
+  renderOverview();
+};
+
     } else {
       mc.innerHTML = `
         <div class='row' style='justify-content:space-between'>
@@ -787,27 +1028,25 @@ function renderOverview(){
           <button class='btn primary' id='startAuto'>▶ Start Play</button>
         </div>
         <div class='small muted'>Auto-Play rotates randomly without repeats; once everyone has received, a new round starts.</div>`;
-     el('#startAuto').onclick = () => {
-  const k   = Math.max(1, parseInt(el('#apK').value)||1);
-  const day = Math.min(28, Math.max(1, parseInt(el('#apDay').value)||new Date().getDate()));
-  const per = Math.max(0, Math.round(parseFloat(el('#apAmt').value||'0')*100));
-
-  Store.meta.autoPlay = {
-    enabled:true,
-    startedAt: todayISO(),
-    day,
-    recipientsPerMonth: k,
-    amountCents: per || Store.meta.defaultContributionCents,
-    lastRunDate:null
-  };
-
-  // 👇 lock into k rotating group(s)
-  buildOrResizeGroups(k);
-
+    el('#startAuto').onclick = () => {
+  const k=Math.max(1, parseInt(el('#apK').value)||1);
+  const day=Math.min(28, Math.max(1, parseInt(el('#apDay').value)||new Date().getDate()));
+  const amtCents=Math.max(0, Math.round(parseFloat(el('#apAmt').value||'0')*100));
+  Store.meta.autoPlay={ enabled:true, startedAt: todayISO(), day, recipientsPerMonth:k,
+    amountCents: amtCents||Store.meta.defaultContributionCents, lastRunDate:null };
   saveStore(Store);
-  flash('Auto-Play started (groups locked)');
+
+  // 👇 Audit
+  log('autoplay_start', {
+    k: Store.meta.autoPlay.recipientsPerMonth,
+    day: Store.meta.autoPlay.day,
+    perDonorCents: Store.meta.autoPlay.amountCents
+  });
+
+  flash('Auto-Play started'); 
   renderOverview();
 };
+
 
     }
 
@@ -869,6 +1108,7 @@ if (open.length === 0) {
 
   addResetUI();
   addLoanResetUI();
+  addReminderUI();
 }
 
 
@@ -909,9 +1149,13 @@ function renderMembers(){
     div.querySelector('[data-viewjson]').onclick=()=>alert(JSON.stringify(m,null,2));
     div.querySelector('[data-remove]').onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Remove '+m.fullName+'?')){
       Store.members=Store.members.filter(x=>x.id!==m.id);
-      // also remove from rounds.servedIds if present
       Store.rounds.servedIds = Store.rounds.servedIds.filter(id=>id!==m.id);
-      saveStore(Store); flash('Member removed'); renderMembers(); renderContribs(); renderPayouts(); renderOverview();
+      saveStore(Store); 
+// 👇 Audit
+      log('member_remove', { id: m.id, name: m.fullName });
+
+      flash('Member removed'); 
+      renderMembers(); renderContribs(); renderPayouts(); renderOverview();
     } };
     list.appendChild(div);
   })
@@ -941,8 +1185,16 @@ function openAddMember(){
     if(!fullName || !age) return alert('Full name and age are required');
     if(Store.members.some(m=>m.password===password)) return alert('Password already in use. Regenerate.');
     const mem={ id:uid(), fullName, age, password, photoDataUrl: img, joinedAt:new Date().toISOString(), active:true };
-    Store.members = [mem, ...Store.members];
-    saveStore(Store); show(el('#modal'), false); flash('Member added'); renderMembers(); renderContribs(); renderPayouts(); renderOverview();
+  Store.members = [mem, ...Store.members];
+saveStore(Store);
+
+// 👇 Audit
+log('member_add', { id: mem.id, name: mem.fullName });
+
+show(el('#modal'), false);
+flash('Member added');
+renderMembers(); renderContribs(); renderPayouts(); renderOverview();
+
   };
 }
 
@@ -1009,6 +1261,122 @@ function assignGiversGrouped(recipientIds){
     map[rid] = grp.filter(id => id !== rid);
   }
   return map; // { recipientId: [giverId,...] }
+}
+
+
+/* ===== Groups manager helpers ===== */
+function ensureGroupNames(){
+  const g = Store.meta.groups || (Store.meta.groups = {locked:false,k:1,map:{},names:["Group 1"]});
+  if (!Array.isArray(g.names) || g.names.length !== (g.k||1)) {
+    g.names = Array.from({length:g.k||1}, (_,i)=> g.names?.[i] || `Group ${i+1}`);
+  }
+}
+
+function renameGroup(index, name){
+  ensureGroupNames();
+  Store.meta.groups.names[index] = name || `Group ${index+1}`;
+  saveStore(Store);
+}
+
+function groupName(i){
+  ensureGroupNames();
+  return Store.meta.groups.names[i] || `Group ${i+1}`;
+}
+
+function rebalanceGroups(){
+  // reuse your existing builder to rebalance evenly with same K
+  buildOrResizeGroups(Store.meta.groups.k || 1);
+}
+
+function renderGroups(){
+  if(!isManager()){ switchTab('overview'); return; }
+  ensureGroupNames();
+
+  const k = Store.meta.groups.k || 1;
+  el('#groupsK').value = k;
+  el('#groupsState').textContent = Store.meta.groups.locked ? `Locked (${k})` : 'Unlocked';
+
+  const wrap = el('#groupsWrap'); wrap.innerHTML = '';
+
+  // build columns
+  for(let gi=0; gi<k; gi++){
+    const col = document.createElement('div');
+    col.className = 'groupCol';
+    col.dataset.groupIndex = String(gi);
+
+    col.innerHTML = `
+      <div class="groupHeader">
+        <span class="pill">G${gi+1}</span>
+        <input class="groupTitle" value="${escapeHtml(groupName(gi))}" />
+        <span class="small muted right">${groupMemberIds(gi).length} member(s)</span>
+      </div>
+      <div class="groupList" data-gi="${gi}"></div>
+    `;
+
+    // members
+    const ids = groupMemberIds(gi);
+    const list = col.querySelector('.groupList');
+    ids.forEach(id=>{
+      const m = Store.members.find(x=>x.id===id); if(!m) return;
+      const chip = document.createElement('div');
+      chip.className = 'memberChip';
+      chip.draggable = true;
+      chip.dataset.mid = id;
+      chip.innerHTML = `<img src="${m.photoDataUrl || avatarFromName(m.fullName)}" class="img-s" style="width:28px;height:28px">
+                        <div class="grow">${escapeHtml(m.fullName)}</div>`;
+      list.appendChild(chip);
+    });
+
+    // DnD
+    col.addEventListener('dragover', (e)=>{ e.preventDefault(); col.classList.add('dragOver'); });
+    col.addEventListener('dragleave', ()=> col.classList.remove('dragOver'));
+    col.addEventListener('drop', (e)=>{
+      e.preventDefault(); col.classList.remove('dragOver');
+      const mid = e.dataTransfer.getData('text/mid');
+      if(!mid) return;
+      Store.meta.groups.map[mid] = gi;
+      saveStore(Store);
+      renderGroups();
+    });
+
+    col.addEventListener('dragstart', (e)=>{
+      const target = e.target.closest('.memberChip');
+      if(!target) return;
+      target.classList.add('dragging');
+      e.dataTransfer.setData('text/mid', target.dataset.mid);
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    col.addEventListener('dragend', (e)=>{
+      const t = e.target.closest('.memberChip');
+      if(t) t.classList.remove('dragging');
+    });
+
+    // rename
+    col.querySelector('.groupTitle').addEventListener('change', (ev)=>{
+      renameGroup(gi, ev.target.value.trim());
+      renderGroups();
+    });
+
+    wrap.appendChild(col);
+  }
+
+  // controls
+  el('#groupsResize').onclick = ()=>{
+    const k = Math.max(1, parseInt(el('#groupsK').value)||1);
+    buildOrResizeGroups(k);
+    ensureGroupNames();
+    Store.meta.groups.names = Array.from({length:k}, (_,i)=> Store.meta.groups.names?.[i] || `Group ${i+1}`);
+    saveStore(Store);
+    flash(`Groups resized to ${k} and locked`);
+    renderGroups();
+  };
+  el('#groupsRebalance').onclick = ()=>{ rebalanceGroups(); flash('Groups rebalanced'); renderGroups(); };
+  el('#groupsUnlock').onclick = ()=>{
+    Store.meta.groups.locked = false;
+    saveStore(Store);
+    flash('Groups unlocked (rotation keeps going; you can relock with a new K)');
+    renderGroups();
+  };
 }
 
 
@@ -1152,23 +1520,51 @@ function renderPayouts(){
   loans.forEach(l=>{
     const m = Store.members.find(x=>x.id===l.recipientId); if(!m) return;
     const div=document.createElement('div'); div.className='card';
-    div.innerHTML = memberCardHTML(m, `<div class='small'>
-  <div><span class='muted'>Total received:</span> ${ZAR.format((l.amountCents||0)/100)}</div>
-  <div class='small'><span class='muted'>Each donor:</span> ${ZAR.format(((l.perDonorCents ?? 0)/100))} × ${(l.fromMembers||[]).length}</div>
-  <div><span class='muted'>Received:</span> ${l.date}</div>
-  <div><span class='muted'>Due:</span> ${l.dueDate} ${ (l.status==='open' && new Date(l.dueDate)<new Date())? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue</span>`:''}</div>
-  <div class='muted small'>From members: ${(l.fromMembers||[]).map(id=> Store.members.find(x=>x.id===id)?.fullName).filter(Boolean).join(', ') || '—'}</div>
-  </div>`) + `...buttons...`;
-    `<div class='row' style='margin-top:8px'>
-      ${ l.status==='open' ? `<button class='btn ok' data-paid>Mark Paid</button>` : `<span class='pill'>Paid on ${l.paidBackAt||''}</span>` }
-      <button class='btn' data-json>View JSON</button>
-      <button class='btn danger right' data-del>Delete</button>
-    </div>`;
+  div.innerHTML = memberCardHTML(m, `
+  <div class='small'>
+    <div><span class='muted'>Total received:</span> ${ZAR.format((l.amountCents||0)/100)}</div>
+    <div class='small'><span class='muted'>Each donor:</span> ${ZAR.format((l.perDonorCents||0)/100)} × ${(l.fromMembers||[]).length}</div>
+    <div><span class='muted'>Received:</span> ${l.date}</div>
+    <div><span class='muted'>Due:</span> ${l.dueDate} ${
+      (l.status==='open' && new Date(l.dueDate)<new Date())
+        ? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue</span>` : ''
+    }</div>
+    <div class='muted small'>
+      From members: ${
+        (l.fromMembers||[])
+          .map(id => Store.members.find(x=>x.id===id)?.fullName)
+          .filter(Boolean).join(', ') || '—'
+      }
+    </div>
+  </div>
+  <div class='row' style='margin-top:8px'>
+    ${ l.status==='open'
+        ? `<button class='btn ok' data-paid>Mark Paid</button>`
+        : `<span class='pill'>Paid on ${l.paidBackAt||''}</span>` }
+    <button class='btn' data-json>Details</button>
+    <button class='btn danger right' data-del>Delete</button>
+  </div>
+`);
+
     div.querySelector('[data-json]').textContent = 'Details';
     div.querySelector('[data-json]').onclick = () => openRecipientDetails(l.id);
-    div.querySelector('[data-del]').onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Delete this payout?')){ Store.loans=Store.loans.filter(x=>x.id!==l.id); saveStore(Store); flash('Payout deleted'); renderPayouts(); renderOverview() } };
-    const paidBtn = div.querySelector('[data-paid]'); if(paidBtn) paidBtn.onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Confirm: mark as PAID BACK?')){ Store.loans = Store.loans.map(x=> x.id===l.id? {...x, status:'paid', paidBackAt: todayISO() }: x ); saveStore(Store); flash('Marked as paid'); renderPayouts(); renderOverview() } };
-    list.appendChild(div);
+    div.querySelector('[data-del]').onclick=()=>{ if(!isManager()) return alert('Manager login required'); 
+    if(confirm('Delete this payout?')){ Store.loans=Store.loans.filter(x=>x.id!==l.id); 
+    saveStore(Store); 
+    flash('Payout deleted'); 
+    renderPayouts(); renderOverview() } };
+    const paidBtn = div.querySelector('[data-paid]'); 
+    if(paidBtn) paidBtn.onclick=()=>{ 
+    if(!isManager()) return alert('Manager login required'); 
+    if(confirm('Confirm: mark as PAID BACK?'))
+
+    { Store.loans = Store.loans.map(x=> x.id===l.id? 
+    {...x, status:'paid', paidBackAt: todayISO() }: x ); 
+
+    saveStore(Store); flash('Marked as paid'); 
+    log('payout_mark_paid', { id: l.id, paidBackAt: todayISO() });
+    renderPayouts(); 
+    renderOverview() } };
   })
 }
 
@@ -1183,7 +1579,6 @@ function openRandomSelect(){
   card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>🎲 Random Select & Lend</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
   <div class='grid grid-2'>
     <div class='grid'>
-      // label text in the modal HTML:
       <label><div class='small muted'>Groups / recipients to pick (per round)</div>
       <input id='pickK' type='number' min='1' max='${Math.max(eligible.length,1)}' value='1'></label>
       <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='pAmt' type='number' min='0' step='0.01' value='${defAmt}'></label>
@@ -1248,7 +1643,8 @@ function renderContribs(){
     const memberId = el('#contribMember').value; if(!memberId) return alert('Select member');
     const amountCents = Math.max(0, Math.round(parseFloat(el('#contribAmount').value||'0')*100)); if(!amountCents) return alert('Enter a valid amount');
     const date = el('#contribDate').value || todayISO();
-    Store.contributions=[{id:uid(), memberId, amountCents, date, note:'Monthly contribution'}, ...Store.contributions]; saveStore(Store); flash('Contribution recorded'); renderContribs(); renderOverview(); renderProfile();
+    Store.contributions=[{id:uid(), memberId, amountCents, date, note:'Monthly contribution'}, ...Store.contributions]; saveStore(Store); log('contrib_record', { memberId, amountCents, date });
+ flash('Contribution recorded'); renderContribs(); renderOverview(); renderProfile();
   };
 
   const q = el('#contribSearch').value?.toLowerCase()||'';
@@ -1419,6 +1815,54 @@ function printLogs(){
   if (!w) return alert('Popup blocked. Allow popups for this site.');
   w.document.open(); w.document.write(html); w.document.close();
   w.onload = () => w.print();
+  
+}
+
+function downloadCSV(filename, headers, rows){
+  const esc = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+  const head = headers.map(esc).join(',');
+  const body = rows.map(r => headers.map(h => esc(r[h])).join(',')).join('\n');
+  const blob = new Blob([head + '\n' + body], { type:'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function buildContribCSV(){
+  const members = Object.fromEntries(Store.members.map(m => [m.id, m.fullName]));
+  const rows = Store.contributions
+    .slice().sort((a,b)=> new Date(a.date)-new Date(b.date))
+    .map(c => ({
+      date: c.date,
+      member: members[c.memberId] || '—',
+      amount: (c.amountCents||0)/100,
+      note: c.note || ''
+    }));
+  downloadCSV(`contributions-${todayISO()}.csv`, ['date','member','amount','note'], rows);
+}
+
+function buildPayoutsCSV(){
+  const members = Object.fromEntries(Store.members.map(m => [m.id, m.fullName]));
+  const rows = Store.loans
+    .slice().sort((a,b)=> new Date(a.date)-new Date(b.date))
+    .map(l => ({
+      date: l.date,
+      recipient: members[l.recipientId] || '—',
+      total_amount: (l.amountCents||0)/100,
+      per_donor: (l.perDonorCents||0)/100,
+      donors_count: (l.fromMembers||[]).length,
+      donors_list: (l.fromMembers||[]).map(id => members[id]).filter(Boolean).join('; '),
+      due: l.dueDate,
+      status: l.status,
+      paid_at: l.paidBackAt || ''
+    }));
+  downloadCSV(
+    `payouts-${todayISO()}.csv`,
+    ['date','recipient','total_amount','per_donor','donors_count','donors_list','due','status','paid_at'],
+    rows
+  );
 }
 
 
@@ -1429,9 +1873,14 @@ function renderSettings(){
   el('#managerDisplay').textContent = Store.meta.managerPin;
   el('#saveSettings').onclick=()=>{ if(!isManager()) return alert('Manager login required'); const cents = Math.max(0, Math.round(parseFloat(el('#defAmount').value||'0')*100)); Store.meta.defaultContributionCents=cents; Store.meta.managerPin=el('#managerEdit').value||Store.meta.managerPin; saveStore(Store); flash('Settings saved'); renderSettings() };
   el('#exportBtn').onclick=()=>{ const blob=new Blob([JSON.stringify(Store,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`money-circle-backup-${todayISO()}.json`; a.click() };
-  el('#importInput').onchange=async e=>{ const f=e.target.files?.[0]; if(!f) return; try{ const obj=JSON.parse(await f.text()); if(!obj.members||!obj.loans||!obj.contributions) throw new Error('Invalid file'); Store=obj; saveStore(Store); flash('Backup restored'); renderAll() } catch(err){ alert('Import failed: '+err.message) } };
+  el('#importInput').onchange=async e=>{ const f=e.target.files?.[0]; if(!f) return; try{ const obj=JSON.parse(await f.text()); if(!obj.members||!obj.loans||!obj.contributions) throw new Error('Invalid file'); Store=obj; saveStore(Store);  log('settings_update', { defaultContributionCents: Store.meta.defaultContributionCents, managerPinChanged: true });
+flash('Backup restored'); renderAll() } catch(err){ alert('Import failed: '+err.message) } };
 const pdfBtn = el('#printLogsBtn');
 if (pdfBtn) pdfBtn.onclick = printLogs;
+
+const csvC = el('#csvContrib'); if (csvC) csvC.onclick = ()=> buildContribCSV();
+const csvP = el('#csvPayouts'); if (csvP) csvP.onclick = ()=> buildPayoutsCSV();
+
 
 }
 
@@ -1483,29 +1932,28 @@ renderAll();
 
   window.cloudCanWrite = false;
 
-  async function cloudLoadOnce() {
-    try {
-      const snap = await getDoc(docRef);
-      if (snap.exists() && snap.data()?.store) {
-        window.Store = snap.data().store;
-        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-        window.renderAll?.();
-      }
-    } catch (e) {
-      console.warn("Cloud load failed:", e);
+ async function cloudLoadOnce() {
+  try {
+    const snap = await getDoc(docRef);
+    if (snap.exists() && snap.data()?.store) {
+      window.replaceStore?.(snap.data().store);
     }
+  } catch (e) {
+    console.warn("Cloud load failed:", e);
   }
+}
 
-  function cloudSubscribe() {
-    onSnapshot(docRef, (snap) => {
+function cloudSubscribe() {
+  return onSnapshot(
+    docRef,
+    (snap) => {
       const data = snap.data();
-      if (data?.store) {
-        window.Store = data.store;
-        localStorage.setItem("money-circle-vanilla-v2", JSON.stringify(window.Store));
-        window.renderAll?.();
-      }
-    }, err => console.warn("Cloud subscribe error:", err));
-  }
+      if (data?.store) window.replaceStore?.(data.store);
+    },
+    (err) => console.warn("Cloud subscribe error:", err)
+  );
+}
+
 
   async function cloudSave(store) {
     if (!window.cloudCanWrite) return;           // writes only when manager is signed in
@@ -1519,54 +1967,27 @@ renderAll();
   // ✅ “Remember me”: keep the email to prefill prompt (never store the password)
   const REMEMBER_EMAIL_KEY = "managerEmail";
 
-  async function signInManager() {
-    // If already signed in (persistence), nothing to do
-    if (auth.currentUser) {
-      window.cloudCanWrite = true;
-      window.flash?.("Cloud: already signed in");
-      return;
-    }
-
-    const rememberedEmail = localStorage.getItem(REMEMBER_EMAIL_KEY) || "";
-    const email = prompt("Cloud email (Firebase Auth)", rememberedEmail);
-    if (!email) return;
-    const pass  = prompt("Cloud password");
-    if (!pass) return;
-
-    await signInWithEmailAndPassword(auth, email, pass);
-
-    // remember the email so the next prompt is prefilled (password is not stored)
-    localStorage.setItem(REMEMBER_EMAIL_KEY, email);
-
-    window.cloudCanWrite = true;
-    window.flash?.("Cloud: manager signed in");
-
-    // push your current local state to Firestore immediately
-    if (window.Store) await cloudSave(window.Store);
-async function signInManager() {
+ async function signInManager() {
   if (auth.currentUser) {
     window.cloudCanWrite = true;
-    updateCloudStatusPill?.();
     window.flash?.("Cloud: already signed in");
     return;
   }
+
   const savedEmail = localStorage.getItem("cloudEmail") || "";
   const email = prompt("Cloud email (Firebase Auth)", savedEmail);
-  const pass  = prompt("Cloud password");         // don't store this
+  const pass  = prompt("Cloud password");
   if (!email || !pass) return;
 
   await setPersistence(auth, browserLocalPersistence);
   await signInWithEmailAndPassword(auth, email, pass);
-  localStorage.setItem("cloudEmail", email);      // save email only
+  localStorage.setItem("cloudEmail", email);
 
   window.cloudCanWrite = true;
-  updateCloudStatusPill?.();
   window.flash?.("Cloud: manager signed in (remembered)");
   if (window.Store) await cloudSave(window.Store);
 }
 
-
-  }
 
   async function signOutManager() {
     await signOut(auth);
