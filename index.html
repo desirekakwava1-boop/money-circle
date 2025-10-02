@@ -47,6 +47,12 @@
     .overflow{max-height:280px;overflow:auto;padding-right:6px}
     .kpi{font-weight:600;font-size:18px;margin-top:4px}
     .tag{font-size:11px;padding:2px 6px;border-radius:8px;border:1px solid #334155;background:#0b0f14}
+
+    /* Donor chips for recipient cards */
+.donor-list{ display:flex; flex-wrap:wrap; gap:6px; margin-top:6px }
+.donor-chip{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid #334155; border-radius:999px; background:#0b0f14; font-size:12px }
+.donor-chip img{ width:20px; height:20px; border-radius:50%; object-fit:cover; border:1px solid #233042; background:#0b0f14 }
+
  
 /* === Mobile-first fixes (add at the END of your <style>) === */
 
@@ -367,12 +373,15 @@ const DEFAULT_MANAGER_PIN = '198520';
 function newStore(){
   return {
     meta:{ createdAt:new Date().toISOString(), currency:'ZAR', defaultContributionCents:DEFAULT_CONTRIB_CENTS, managerPin: DEFAULT_MANAGER_PIN,
+    groups: { locked:false, k:1, map:{} }, // map: memberId -> groupIndex
+    autoPlay:{ enabled:false, startedAt:null, day:1, recipientsPerMonth:1, amountCents: DEFAULT_CONTRIB_CENTS, lastRunDate:null },
     autoPlay:{ enabled:false, startedAt:null, day:1, recipientsPerMonth:1, amountCents: DEFAULT_CONTRIB_CENTS, lastRunDate:null } },
     members:[], // {id, fullName, age, password, photoDataUrl, joinedAt, active}
     contributions:[], // {id, memberId, amountCents, date, note}
     loans:[], // {id, recipientId, amountCents, date, dueDate, fromMembers, status:'open'|'paid', paidBackAt}
     rounds:{ cycle:1, servedIds:[] }, // fair rotation
     session:{ role:null, memberId:null },
+    
   };
 }
 
@@ -598,6 +607,116 @@ pT.onclick = async () => {
 let currentTab='overview';
 function switchTab(tab){ currentTab=tab; renderNav(); ['overview','members','payouts','contribs','profile','backup'].forEach(t=>show(el('#view-'+t), t===tab)); if(tab==='overview') renderOverview(); if(tab==='members') renderMembers(); if(tab==='payouts') renderPayouts(); if(tab==='contribs') renderContribs(); if(tab==='profile') renderProfile(); if(tab==='backup') renderSettings(); }
 
+function recipientCardHTML(l){
+  const m = Store.members.find(x => x.id === l.recipientId);
+  if(!m) return '';
+  const overdue = (l.status === 'open' && new Date(l.dueDate) < new Date())
+    ? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue by ${Math.abs(inDays(todayISO(), l.dueDate))}d</span>`
+    : '';
+
+  const donors = (l.fromMembers || [])
+    .map(id => Store.members.find(x => x.id === id))
+    .filter(Boolean);
+
+  const donorsCount = donors.length;
+  const perDonor = (l.perDonorCents != null)
+    ? l.perDonorCents
+    : (donorsCount ? Math.round((l.amountCents||0)/donorsCount) : 0);
+
+  const amountLine = `
+    <div class="small" style="margin-top:4px">
+      <span class="muted">Total received:</span> ${ZAR.format((l.amountCents||0)/100)}
+      &nbsp;·&nbsp; <span class="muted">Each donor:</span> ${ZAR.format(perDonor/100)} × ${donorsCount}
+    </div>`;
+
+  const donorHTML = donors.length
+    ? donors.map(d => `
+        <span class="donor-chip">
+          <img src="${d.photoDataUrl || avatarFromName(d.fullName)}" alt="">
+          ${escapeHtml(d.fullName)}
+        </span>`).join('')
+    : `<span class="small muted">No donors recorded</span>`;
+
+  return `
+    <div class="card">
+      <div class="row" style="align-items:flex-start">
+        <img class="avatar" src="${m.photoDataUrl || avatarFromName(m.fullName)}" alt="">
+        <div class="grow">
+          <div style="font-weight:600">${escapeHtml(m.fullName)}</div>
+          <div class="small muted">Age ${m.age} · Member since ${m.joinedAt?.slice(0,10) || '—'}</div>
+
+          ${amountLine}
+          <div class="small">
+            <span class="muted">Received:</span> ${l.date}
+            &nbsp;·&nbsp; <span class="muted">Due:</span> ${l.dueDate}
+            ${overdue}
+          </div>
+
+          <div class="small muted" style="margin-top:6px">From members:</div>
+          <div class="donor-list">${donorHTML}</div>
+        </div>
+        <button class="btn right" data-details="${l.id}">Details</button>
+      </div>
+    </div>`;
+}
+
+
+function openRecipientDetails(loanId){
+  const l = Store.loans.find(x => x.id === loanId);
+  if(!l) return;
+  const m = Store.members.find(x => x.id === l.recipientId);
+  const donors = (l.fromMembers || [])
+    .map(id => Store.members.find(x => x.id === id))
+    .filter(Boolean);
+
+  const totalContrib = Store.contributions
+    .filter(c => c.memberId === m?.id)
+    .reduce((a,c) => a + (c.amountCents||0), 0);
+  const totalReceived = Store.loans
+    .filter(x => x.recipientId === m?.id)
+    .reduce((a,x) => a + (x.amountCents||0), 0);
+
+  const donorRows = donors.length
+    ? donors.map(d => `
+        <div class="row small" style="justify-content:space-between;border-bottom:1px solid #18202d;padding:4px 0">
+          <span><img src="${d.photoDataUrl || avatarFromName(d.fullName)}" class="img-s" style="width:28px;height:28px;margin-right:6px;vertical-align:middle"> ${escapeHtml(d.fullName)}</span>
+          <span class="muted">Donor</span>
+        </div>`).join('')
+    : `<div class="small muted">No donors recorded for this payout.</div>`;
+
+  const card = el('#modalCard');
+  card.innerHTML = `
+    <div class="row" style="justify-content:space-between">
+      <h3 style="margin:0">Recipient Details</h3>
+      <button class="btn" id="xClose" style="padding:4px 8px">✕</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <img class="avatar" src="${m?.photoDataUrl || avatarFromName(m?.fullName||'?')}" alt="">
+      <div class="grow">
+        <div style="font-weight:600">${escapeHtml(m?.fullName||'—')}</div>
+        <div class="small muted">Age ${m?.age ?? '—'} · Member since ${m?.joinedAt?.slice(0,10) || '—'}</div>
+        <div class="small" style="margin-top:6px">
+          <span class="muted">This payout:</span> ${ZAR.format(l.amountCents/100)} &nbsp;·&nbsp;
+          <span class="muted">Received:</span> ${l.date} &nbsp;·&nbsp;
+          <span class="muted">Due:</span> ${l.dueDate} &nbsp;·&nbsp;
+          <span class="muted">Status:</span> ${l.status === 'open' ? 'Open' : 'Paid ' + (l.paidBackAt || '')}
+        </div>
+        <div class="small" style="margin-top:6px">
+          <span class="muted">Lifetime received:</span> ${ZAR.format(totalReceived/100)}
+          &nbsp;·&nbsp; <span class="muted">Lifetime contributed:</span> ${ZAR.format(totalContrib/100)}
+        </div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <div class="small muted" style="margin-bottom:6px">Donors in this payout</div>
+      <div class="overflow">${donorRows}</div>
+    </div>
+  `;
+  show(el('#modal'), true);
+  el('#xClose').onclick = () => show(el('#modal'), false);
+}
+
+
 /***** Overview *****/
 function renderOverview(){
   // Manager Controls (Start/Stop Auto-Play)
@@ -640,11 +759,19 @@ function renderOverview(){
         </div>
         `;
       el('#runNow').onclick = () => {
-        const d=todayISO(); const amt=ap.amountCents||Store.meta.defaultContributionCents;
-        createPayoutBatch(d, ap.recipientsPerMonth||1, amt);
-        ap.lastRunDate=d; saveStore(Store); flash('Auto-Play: run created');
-        renderOverview(); renderPayouts(); renderProfile();
-      };
+  const d = todayISO();
+  const k = ap.recipientsPerMonth || 1;
+  const perDonor = ap.amountCents || Store.meta.defaultContributionCents;
+
+  if (!Store.meta.groups?.locked) buildOrResizeGroups(k);
+  createPayoutBatch(d, k, perDonor);
+
+  ap.lastRunDate = d;
+  saveStore(Store);
+  flash('Auto-Play: run created');
+  renderOverview(); renderPayouts(); renderProfile();
+};
+
       el('#stopAuto').onclick = () => { ap.enabled=false; saveStore(Store); flash('Auto-Play stopped'); renderOverview(); };
     } else {
       mc.innerHTML = `
@@ -660,14 +787,28 @@ function renderOverview(){
           <button class='btn primary' id='startAuto'>▶ Start Play</button>
         </div>
         <div class='small muted'>Auto-Play rotates randomly without repeats; once everyone has received, a new round starts.</div>`;
-      el('#startAuto').onclick = () => {
-        const k=Math.max(1, parseInt(el('#apK').value)||1);
-        const day=Math.min(28, Math.max(1, parseInt(el('#apDay').value)||new Date().getDate()));
-        const amtCents=Math.max(0, Math.round(parseFloat(el('#apAmt').value||'0')*100));
-        Store.meta.autoPlay={ enabled:true, startedAt: todayISO(), day, recipientsPerMonth:k,
-          amountCents: amtCents||Store.meta.defaultContributionCents, lastRunDate:null };
-        saveStore(Store); flash('Auto-Play started'); renderOverview();
-      };
+     el('#startAuto').onclick = () => {
+  const k   = Math.max(1, parseInt(el('#apK').value)||1);
+  const day = Math.min(28, Math.max(1, parseInt(el('#apDay').value)||new Date().getDate()));
+  const per = Math.max(0, Math.round(parseFloat(el('#apAmt').value||'0')*100));
+
+  Store.meta.autoPlay = {
+    enabled:true,
+    startedAt: todayISO(),
+    day,
+    recipientsPerMonth: k,
+    amountCents: per || Store.meta.defaultContributionCents,
+    lastRunDate:null
+  };
+
+  // 👇 lock into k rotating group(s)
+  buildOrResizeGroups(k);
+
+  saveStore(Store);
+  flash('Auto-Play started (groups locked)');
+  renderOverview();
+};
+
     }
 
     // ⬇️ NEW: Wire cloud buttons safely
@@ -713,20 +854,18 @@ function renderOverview(){
   el('#roundServed').textContent = String(Store.rounds.servedIds.length);
   el('#roundTotal').textContent = String(activeMembers);
 
-  const open = Store.loans.filter(l=>l.status==='open');
-  const wrap=el('#openRecipients'); wrap.innerHTML='';
-  if(open.length===0){ show(el('#noOpenRecipients'), true); }
-  else {
-    show(el('#noOpenRecipients'), false);
-    open.forEach(l=>{
-      const m = Store.members.find(x=>x.id===l.recipientId); if(!m) return;
-      wrap.insertAdjacentHTML('beforeend', memberCardHTML(m, `<div class='small'>
-        <div><span class='muted'>Amount:</span> ${ZAR.format(l.amountCents/100)}</div>
-        <div><span class='muted'>Received:</span> ${l.date}</div>
-        <div><span class='muted'>Due:</span> ${l.dueDate}${ new Date(l.dueDate)<new Date()? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue by ${Math.abs(inDays(todayISO(), l.dueDate))}d</span>`:''}</div>
-      </div>`));
-    });
-  }
+  const open = Store.loans.filter(l => l.status === 'open');
+const wrap = el('#openRecipients'); wrap.innerHTML = '';
+if (open.length === 0) {
+  show(el('#noOpenRecipients'), true);
+} else {
+  show(el('#noOpenRecipients'), false);
+  wrap.innerHTML = open.map(recipientCardHTML).join('');
+  wrap.querySelectorAll('[data-details]').forEach(btn => {
+    btn.onclick = () => openRecipientDetails(btn.dataset.details);
+  });
+}
+
 
   addResetUI();
   addLoanResetUI();
@@ -809,6 +948,70 @@ function openAddMember(){
 
 function genPassword(){ const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; return Array.from({length:8},()=>chars[Math.floor(Math.random()*chars.length)]).join('') }
 
+/* ===== Group helpers (balanced, persistent) ===== */
+function activeMemberIds(){ return Store.members.filter(m=>m.active!==false).map(m=>m.id); }
+
+function buildOrResizeGroups(k){
+  k = Math.max(1, Math.min(k, activeMemberIds().length || 1));
+  const actives = activeMemberIds();
+  const oldMap = (Store.meta.groups && Store.meta.groups.map) || {};
+  const map = {};
+
+  // keep existing where still valid
+  for(const id of actives){
+    const g = oldMap[id];
+    if(Number.isInteger(g) && g>=0 && g<k) map[id]=g;
+  }
+
+  // balance the rest
+  const counts = Array(k).fill(0);
+  for(const id in map) counts[map[id]]++;
+  for(const id of actives){
+    if(map[id]!=null) continue;
+    let gi = 0, min = counts[0];
+    for(let i=1;i<k;i++) if(counts[i] < min){ gi=i; min=counts[i]; }
+    map[id]=gi; counts[gi]++;
+  }
+
+  Store.meta.groups = { locked:true, k, map };
+  saveStore(Store);
+}
+
+function getGroupIndex(id){
+  const g = Store.meta.groups;
+  return (g && g.map && Number.isInteger(g.map[id])) ? g.map[id] : 0;
+}
+
+function groupMemberIds(gi){
+  return Store.members.filter(m => m.active!==false && getGroupIndex(m.id)===gi).map(m=>m.id);
+}
+
+function pickRecipientsPerGroup(){
+  const g = Store.meta.groups;
+  if(!g?.locked) return [];
+  const picks=[];
+  for(let gi=0; gi<g.k; gi++){
+    const grp = groupMemberIds(gi);
+    const elig = grp.filter(id => !Store.rounds.servedIds.includes(id));
+    if(elig.length){
+      picks.push( pickRandom(elig, 1)[0] );
+    }
+  }
+  return picks;
+}
+
+/* donors from same group as recipient, excluding the recipient */
+function assignGiversGrouped(recipientIds){
+  const map = {};
+  for(const rid of recipientIds){
+    const gi = getGroupIndex(rid);
+    const grp = groupMemberIds(gi);
+    map[rid] = grp.filter(id => id !== rid);
+  }
+  return map; // { recipientId: [giverId,...] }
+}
+
+
 /***** Fair Rotation (Random Selection) *****/
 function getEligibleIds(){
   const activeIds = Store.members.filter(m=>m.active!==false).map(m=>m.id);
@@ -866,44 +1069,58 @@ function computeNextRunDate(){
                              : monthDate(start.getFullYear(), start.getMonth(), day);
   return todayISO(next);
 }
-function createPayoutBatch(dateStr, k, amountCents){
-  // get eligible recipients (fair rotation)
+function createPayoutBatch(dateStr, k, perDonorCents){
+  // global cycle reset if needed
   let eligible = getEligibleIds();
   if (eligible.length === 0) {
-    const activeIds = Store.members.filter(m => m.active !== false).map(m => m.id);
-    if (activeIds.length === 0) return; // no members
-    // start a new round
+    const actives = activeMemberIds();
+    if (!actives.length) return;
     Store.rounds.cycle += 1;
     Store.rounds.servedIds = [];
     eligible = getEligibleIds();
   }
 
-  const chosen = pickRandom(eligible, k);
+  // ensure/lock groups when manager set a round pattern (k groups)
+  if (!Store.meta.groups?.locked) {
+    buildOrResizeGroups(Math.max(1, k||1));
+  } else if (k && Store.meta.groups.k !== k) {
+    // if caller explicitly requests a new k, re-balance into that k and keep locked
+    buildOrResizeGroups(k);
+  }
+
+  // one recipient per group (where eligible remain)
+  const chosen = pickRecipientsPerGroup();
   if (chosen.length === 0) return;
 
-  // due date = +1 month, same day (clamped)
-  const runDate = new Date(dateStr);
-  const due     = addMonthsDate(runDate, 1, runDate.getDate());
-  const dueStr  = todayISO(due);
+  // donors = members of the same group (minus recipient)
+  const giverMap = assignGiversGrouped(chosen);
 
-  // NEW: assign who gives to whom (remaining actives only)
-  const giverMap = assignGivers(chosen);
+  const loans = chosen.map(rid => {
+    const donors = giverMap[rid] || [];
+    const totalCents = (perDonorCents||0) * donors.length;   // total = per-donor × (#group-1)
+    // due date = +1 month, same day, clamped
+    const runDate = new Date(dateStr);
+    const due     = addMonthsDate(runDate, 1, runDate.getDate());
+    return {
+      id: uid(),
+      recipientId: rid,
+      perDonorCents: perDonorCents||0,     // 👈 NEW: store per-donor amount
+      amountCents: totalCents,             // total the recipient gets
+      date: dateStr,
+      dueDate: todayISO(due),
+      fromMembers: donors,
+      status: 'open'
+    };
+  });
 
-  const loans = chosen.map(rid => ({
-    id: uid(),
-    recipientId: rid,
-    amountCents,
-    date: dateStr,
-    dueDate: dueStr,
-    fromMembers: giverMap[rid] || [],   // only these members give to this recipient
-    status: 'open'
-  }));
-
-  // persist rotation + loans
+  // mark served (fair rotation across all groups)
   Store.rounds.servedIds = Array.from(new Set([...Store.rounds.servedIds, ...chosen]));
+
+  // persist
   Store.loans = [...loans, ...Store.loans];
   saveStore(Store);
 }
+
 
 
 function autoPlayTick(){
@@ -936,17 +1153,19 @@ function renderPayouts(){
     const m = Store.members.find(x=>x.id===l.recipientId); if(!m) return;
     const div=document.createElement('div'); div.className='card';
     div.innerHTML = memberCardHTML(m, `<div class='small'>
-      <div><span class='muted'>Amount:</span> ${ZAR.format(l.amountCents/100)}</div>
-      <div><span class='muted'>Received:</span> ${l.date}</div>
-      <div><span class='muted'>Due:</span> ${l.dueDate} ${ (l.status==='open' && new Date(l.dueDate)<new Date())? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue</span>`:''}</div>
-      <div class='muted small'>From members: ${(l.fromMembers||[]).map(id=> Store.members.find(x=>x.id===id)?.fullName).filter(Boolean).join(', ') || '—'}</div>
-    </div>`)+
+  <div><span class='muted'>Total received:</span> ${ZAR.format((l.amountCents||0)/100)}</div>
+  <div class='small'><span class='muted'>Each donor:</span> ${ZAR.format(((l.perDonorCents ?? 0)/100))} × ${(l.fromMembers||[]).length}</div>
+  <div><span class='muted'>Received:</span> ${l.date}</div>
+  <div><span class='muted'>Due:</span> ${l.dueDate} ${ (l.status==='open' && new Date(l.dueDate)<new Date())? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue</span>`:''}</div>
+  <div class='muted small'>From members: ${(l.fromMembers||[]).map(id=> Store.members.find(x=>x.id===id)?.fullName).filter(Boolean).join(', ') || '—'}</div>
+  </div>`) + `...buttons...`;
     `<div class='row' style='margin-top:8px'>
       ${ l.status==='open' ? `<button class='btn ok' data-paid>Mark Paid</button>` : `<span class='pill'>Paid on ${l.paidBackAt||''}</span>` }
       <button class='btn' data-json>View JSON</button>
       <button class='btn danger right' data-del>Delete</button>
     </div>`;
-    div.querySelector('[data-json]').onclick=()=>alert(JSON.stringify(l,null,2));
+    div.querySelector('[data-json]').textContent = 'Details';
+    div.querySelector('[data-json]').onclick = () => openRecipientDetails(l.id);
     div.querySelector('[data-del]').onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Delete this payout?')){ Store.loans=Store.loans.filter(x=>x.id!==l.id); saveStore(Store); flash('Payout deleted'); renderPayouts(); renderOverview() } };
     const paidBtn = div.querySelector('[data-paid]'); if(paidBtn) paidBtn.onclick=()=>{ if(!isManager()) return alert('Manager login required'); if(confirm('Confirm: mark as PAID BACK?')){ Store.loans = Store.loans.map(x=> x.id===l.id? {...x, status:'paid', paidBackAt: todayISO() }: x ); saveStore(Store); flash('Marked as paid'); renderPayouts(); renderOverview() } };
     list.appendChild(div);
@@ -964,11 +1183,18 @@ function openRandomSelect(){
   card.innerHTML=`<div class='row' style='justify-content:space-between'><h3 style='margin:0'>🎲 Random Select & Lend</h3><button class='btn' id='xClose' style='padding:4px 8px'>✕</button></div>
   <div class='grid grid-2'>
     <div class='grid'>
-      <label><div class='small muted'>Recipients to pick (this round)</div><input id='pickK' type='number' min='1' max='${Math.max(eligible.length,1)}' value='1'></label>
+      // label text in the modal HTML:
+      <label><div class='small muted'>Groups / recipients to pick (per round)</div>
+      <input id='pickK' type='number' min='1' max='${Math.max(eligible.length,1)}' value='1'></label>
       <label><div class='small muted'>Amount per recipient (ZAR)</div><input id='pAmt' type='number' min='0' step='0.01' value='${defAmt}'></label>
       <label><div class='small muted'>Received on</div><input id='pDate' type='date' value='${todayISO()}'></label>
       <label><div class='small muted'>Due date</div><input id='pDue' type='date' value='${defDue}'></label>
       <div class='small muted'>Eligible now: ${eligible.length}/${members.length}. Round ${Store.rounds.cycle}.</div>
+      <label class='small' style='display:block;margin-top:6px'>
+      <input id='lockGroupsNow' type='checkbox' checked>
+      Lock into this many rotating group(s) until everyone has received
+    </label>
+
       <div class='row'><button class='btn' id='previewBtn'>Preview Selection</button><button class='btn primary right' id='create'>Create Payout(s)</button></div>
     </div>
     <div>
@@ -991,47 +1217,24 @@ function openRandomSelect(){
   const initial=renderPreview();
 
 el('#create').onclick = () => {
-  const k = Math.max(1, Math.min(parseInt(el('#pickK').value)||1, getEligibleIds().length||1));
-  let chosenIds = pickRandom(getEligibleIds(), k);
+  let k = Math.max(1, Math.min(parseInt(el('#pickK').value)||1, (getEligibleIds().length || activeMemberIds().length || 1)));
+  const perDonorCents = Math.max(0, Math.round(parseFloat(el('#pAmt').value||'0')*100));
+  const date    = el('#pDate').value || todayISO();
+  const dueDate = el('#pDue').value  || todayISO();
+  const lockNow = !!el('#lockGroupsNow')?.checked;
 
-  const amountCents = Math.max(0, Math.round(parseFloat(el('#pAmt').value||'0')*100));
-  const date = el('#pDate').value || todayISO();
-  const dueDate = el('#pDue').value || todayISO();
+  if (lockNow || !Store.meta.groups?.locked) buildOrResizeGroups(k);
 
-  // if none eligible, start a new round and try again
-  if (chosenIds.length === 0) {
-    const activeIds = Store.members.filter(m => m.active !== false).map(m => m.id);
-    if (activeIds.length === 0) return alert('No active members');
-    Store.rounds.cycle += 1; Store.rounds.servedIds = [];
-    chosenIds = pickRandom(getEligibleIds(), k);
-  }
-  if (chosenIds.length === 0) return alert('Still no eligible members');
+  // If a whole cycle is complete, getEligibleIds() will reset automatically
+  if (activeMemberIds().length === 0) return alert('No active members');
 
-  // NEW: assign who gives to whom
-  const giverMap = assignGivers(chosenIds);
-
-  const payloads = chosenIds.map(rid => ({
-    id: uid(),
-    recipientId: rid,
-    amountCents,
-    date,
-    dueDate,
-    fromMembers: giverMap[rid] || [],   // only these members give to this recipient
-    status: 'open'
-  }));
-
-  // update rotation + persist
-  Store.rounds.servedIds = Array.from(new Set([...Store.rounds.servedIds, ...chosenIds]));
-  Store.loans = [...payloads, ...Store.loans];
-  saveStore(Store);
+  // The grouped function will choose one eligible per group
+  createPayoutBatch(date, Store.meta.groups.k, perDonorCents);
 
   show(el('#modal'), false);
   flash('Payout(s) created');
   renderPayouts(); renderOverview(); renderProfile();
 };
-
-
-
 
 }
 
@@ -1058,9 +1261,19 @@ function renderContribs(){
 /***** Profile / Login & Signup *****/
 function renderProfile(){
   // login recipients panel
-  const open = Store.loans.filter(l=>l.status==='open');
-  const wrap=el('#loginRecipients'); wrap.innerHTML='';
-  if(open.length===0){ show(el('#loginRecipientsEmpty'), true) } else { show(el('#loginRecipientsEmpty'), false); open.forEach(l=>{ const m=Store.members.find(x=>x.id===l.recipientId); if(!m) return; wrap.insertAdjacentHTML('beforeend', memberCardHTML(m, `<div class='small'><div><span class='muted'>Amount:</span> ${ZAR.format(l.amountCents/100)}</div><div><span class='muted'>Received:</span> ${l.date}</div><div><span class='muted'>Due:</span> ${l.dueDate}</div></div>`)) }) }
+const open = Store.loans.filter(l => l.status === 'open');
+const wrap = el('#loginRecipients'); wrap.innerHTML = '';
+if (open.length === 0) {
+  show(el('#loginRecipientsEmpty'), true);
+} else {
+  show(el('#loginRecipientsEmpty'), false);
+  wrap.innerHTML = open.map(recipientCardHTML).join('');
+  wrap.querySelectorAll('[data-details]').forEach(btn => {
+    btn.onclick = () => openRecipientDetails(btn.dataset.details);
+  });
+}
+
+
 
   // session
   if(isMember()){
