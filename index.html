@@ -1,4 +1,4 @@
-ok lets check again our code <!doctype html>
+all done lets just check if all is well <!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8" />
@@ -818,8 +818,8 @@ pT.onclick = async () => {
 /***** Tab switching *****/
 let currentTab='overview';
 function switchTab(tab){ currentTab=tab; renderNav(); 
-  ['overview','groups','members','payouts','contribs','profile','backup','audit']
-  .forEach(t => show(el('#view-'+t), t === tab));
+  ['overview','members','payouts','contribs','profile','backup']
+  .forEach(t=>show(el('#view-'+t), t===tab)); 
   if(tab==='overview') renderOverview(); 
   if(tab==='groups')   renderGroups();
   if(tab==='members') renderMembers(); 
@@ -981,7 +981,7 @@ function renderOverview(){
           <button class='btn danger right' id='stopAuto'>⏹ Stop</button>
         </div>
         `;
-    el('#runNow').onclick = () => {
+      el('#runNow').onclick = () => {
   const d = todayISO();
   const k = ap.recipientsPerMonth || 1;
   const perDonor = ap.amountCents || Store.meta.defaultContributionCents;
@@ -991,20 +991,13 @@ function renderOverview(){
 
   ap.lastRunDate = d;
   saveStore(Store);
-
-  log('payout_create', { mode:'autoplay_runNow', k, perDonorCents: perDonor, date: d }); // ← here
   flash('Auto-Play: run created');
   renderOverview(); renderPayouts(); renderProfile();
 };
 
- el('#stopAuto').onclick = () => {
-  ap.enabled = false;
-  saveStore(Store);
-  log('autoplay_stop', {});
-  flash('Auto-Play stopped');
-  renderOverview();
-};
-
+  el('#stopAuto').onclick = () => { ap.enabled=false; saveStore(Store); log('autoplay_stop', {});
+  log('payout_create', { mode:'autoplay_runNow', k, perDonorCents: perDonor, date: d });
+ flash('Auto-Play stopped'); renderOverview(); };
     } else {
       mc.innerHTML = `
         <div class='row' style='justify-content:space-between'>
@@ -1513,32 +1506,18 @@ function renderPayouts(){
   loans.forEach(l=>{
     const m = Store.members.find(x=>x.id===l.recipientId); if(!m) return;
     const div=document.createElement('div'); div.className='card';
-  div.innerHTML = memberCardHTML(m, `
-  <div class='small'>
-    <div><span class='muted'>Total received:</span> ${ZAR.format((l.amountCents||0)/100)}</div>
-    <div class='small'><span class='muted'>Each donor:</span> ${ZAR.format((l.perDonorCents||0)/100)} × ${(l.fromMembers||[]).length}</div>
-    <div><span class='muted'>Received:</span> ${l.date}</div>
-    <div><span class='muted'>Due:</span> ${l.dueDate} ${
-      (l.status==='open' && new Date(l.dueDate)<new Date())
-        ? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue</span>` : ''
-    }</div>
-    <div class='muted small'>
-      From members: ${
-        (l.fromMembers||[])
-          .map(id => Store.members.find(x=>x.id===id)?.fullName)
-          .filter(Boolean).join(', ') || '—'
-      }
-    </div>
-  </div>
-  <div class='row' style='margin-top:8px'>
-    ${ l.status==='open'
-        ? `<button class='btn ok' data-paid>Mark Paid</button>`
-        : `<span class='pill'>Paid on ${l.paidBackAt||''}</span>` }
-    <button class='btn' data-json>Details</button>
-    <button class='btn danger right' data-del>Delete</button>
-  </div>
-`);
-
+    div.innerHTML = memberCardHTML(m, `<div class='small'>
+  <div><span class='muted'>Total received:</span> ${ZAR.format((l.amountCents||0)/100)}</div>
+  <div class='small'><span class='muted'>Each donor:</span> ${ZAR.format(((l.perDonorCents ?? 0)/100))} × ${(l.fromMembers||[]).length}</div>
+  <div><span class='muted'>Received:</span> ${l.date}</div>
+  <div><span class='muted'>Due:</span> ${l.dueDate} ${ (l.status==='open' && new Date(l.dueDate)<new Date())? `<span class='pill' style='margin-left:6px;border-color:#7f1d1d;background:#3b0d0d;color:#fecaca'>Overdue</span>`:''}</div>
+  <div class='muted small'>From members: ${(l.fromMembers||[]).map(id=> Store.members.find(x=>x.id===id)?.fullName).filter(Boolean).join(', ') || '—'}</div>
+  </div>`) + `...buttons...`;
+    `<div class='row' style='margin-top:8px'>
+      ${ l.status==='open' ? `<button class='btn ok' data-paid>Mark Paid</button>` : `<span class='pill'>Paid on ${l.paidBackAt||''}</span>` }
+      <button class='btn' data-json>View JSON</button>
+      <button class='btn danger right' data-del>Delete</button>
+    </div>`;
     div.querySelector('[data-json]').textContent = 'Details';
     div.querySelector('[data-json]').onclick = () => openRecipientDetails(l.id);
     div.querySelector('[data-del]').onclick=()=>{ if(!isManager()) return alert('Manager login required'); 
@@ -1550,14 +1529,14 @@ function renderPayouts(){
     if(paidBtn) paidBtn.onclick=()=>{ 
     if(!isManager()) return alert('Manager login required'); 
     if(confirm('Confirm: mark as PAID BACK?'))
-
     { Store.loans = Store.loans.map(x=> x.id===l.id? 
     {...x, status:'paid', paidBackAt: todayISO() }: x ); 
-
     saveStore(Store); flash('Marked as paid'); 
     log('payout_mark_paid', { id: l.id, paidBackAt: todayISO() });
+    log('payout_delete', { id: l.id });
     renderPayouts(); 
     renderOverview() } };
+    list.appendChild(div);
   })
 }
 
@@ -1809,12 +1788,7 @@ function printLogs(){
   if (!w) return alert('Popup blocked. Allow popups for this site.');
   w.document.open(); w.document.write(html); w.document.close();
   w.onload = () => w.print();
-  
 }
-
-window.downloadCSV = function(filename, headers, rows) { /* ...same body... */ };
-window.buildContribCSV = function() { /* ...same body... */ };
-window.buildPayoutsCSV = function() { /* ...same body... */ };
 
 
 /***** Backup & Settings *****/
@@ -1962,27 +1936,54 @@ function buildPayoutsCSV(){
   // ✅ “Remember me”: keep the email to prefill prompt (never store the password)
   const REMEMBER_EMAIL_KEY = "managerEmail";
 
- async function signInManager() {
+  async function signInManager() {
+    // If already signed in (persistence), nothing to do
+    if (auth.currentUser) {
+      window.cloudCanWrite = true;
+      window.flash?.("Cloud: already signed in");
+      return;
+    }
+
+    const rememberedEmail = localStorage.getItem(REMEMBER_EMAIL_KEY) || "";
+    const email = prompt("Cloud email (Firebase Auth)", rememberedEmail);
+    if (!email) return;
+    const pass  = prompt("Cloud password");
+    if (!pass) return;
+
+    await signInWithEmailAndPassword(auth, email, pass);
+
+    // remember the email so the next prompt is prefilled (password is not stored)
+    localStorage.setItem(REMEMBER_EMAIL_KEY, email);
+
+    window.cloudCanWrite = true;
+    window.flash?.("Cloud: manager signed in");
+
+    // push your current local state to Firestore immediately
+    if (window.Store) await cloudSave(window.Store);
+async function signInManager() {
   if (auth.currentUser) {
     window.cloudCanWrite = true;
+    updateCloudStatusPill?.();
     window.flash?.("Cloud: already signed in");
     return;
   }
-
   const savedEmail = localStorage.getItem("cloudEmail") || "";
   const email = prompt("Cloud email (Firebase Auth)", savedEmail);
-  const pass  = prompt("Cloud password");
+  const pass  = prompt("Cloud password");         // don't store this
   if (!email || !pass) return;
 
   await setPersistence(auth, browserLocalPersistence);
   await signInWithEmailAndPassword(auth, email, pass);
-  localStorage.setItem("cloudEmail", email);
+  localStorage.setItem("cloudEmail", email);      // save email only
 
   window.cloudCanWrite = true;
+  updateCloudStatusPill?.();
   window.flash?.("Cloud: manager signed in (remembered)");
   if (window.Store) await cloudSave(window.Store);
 }
 
+
+  }
 
   async function signOutManager() {
     await signOut(auth);
@@ -2020,4 +2021,4 @@ function buildPayoutsCSV(){
 
 
 </body>
-</html>
+</html> please check how this is now all done 
